@@ -18,7 +18,7 @@ import { ProjectConflictError, openRepository, type ProjectRepository } from './
 import { usePlayers } from './storage/usePlayers';
 import { ProfilePicker } from './components/ProfilePicker';
 import { applyProfileHero } from './models/profile';
-import { setLevel, setLevelPlay, setLevelRules, type LevelKind } from './models/levels';
+import { LEVEL_KIND_TEXT, setLevel, setLevelPlay, setLevelRules, type LevelKind } from './models/levels';
 import { gameKindChoices, heroOf } from './components/GameKindDemo';
 import { GUEST, unlockLevels, unlockedLevels } from './storage/progress';
 
@@ -127,23 +127,24 @@ export function App() {
 
   const newGame = async () => {
     if (!repo) return;
-    const count = (await repo.list()).length;
-    const name = await dialogs.prompt({
-      title: 'Name your new game',
-      initialValue: `My Game ${count + 1}`,
-      confirmLabel: 'Create',
-      maxLength: LIMITS.nameMaxLength,
-    });
-    if (!name) return;
     const player = players.current;
-    // A player's own hero stars in the pictures (a shooter flies its ship).
-    const own = player ? heroOf(applyProfileHero(createProject(name), player)) : undefined;
+    // First the kind of game. A player's own hero stars in the pictures (a shooter flies its ship).
+    const own = player ? heroOf(applyProfileHero(createProject('Hero'), player)) : undefined;
     const shape = await dialogs.choose<LevelKind>({
       title: 'What kind of game?',
       message: 'You can change this later under How it plays.',
       options: gameKindChoices((k) => (k === 'shooter' ? undefined : own)),
     });
     if (!shape) return;
+    // Then its name.
+    const count = (await repo.list()).length;
+    const name = await dialogs.prompt({
+      title: `Name your new ${LEVEL_KIND_TEXT[shape].label.toLowerCase()} game`,
+      initialValue: `My Game ${count + 1}`,
+      confirmLabel: 'Create',
+      maxLength: LIMITS.nameMaxLength,
+    });
+    if (!name) return;
     if (shape === 'shooter') {
       setSession({ project: await repo.create(createShooterProject(name)), dirty: false });
       setRoute({ name: 'project' });
