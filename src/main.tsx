@@ -1,46 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Gamepad2, Pencil, FolderOpen, Plus, ArrowLeft, Play, Save, Trash2, Download, Upload, RotateCcw } from 'lucide-react';
-import './style.css';
+import { App } from './App';
+import { DialogProvider } from './components/Dialogs';
+import './styles/app.css';
 
-type Sprite = { id:string; name:string; pixels:string[] };
-type Project = { id:string; name:string; sprites:Sprite[]; createdAt:number };
-type Screen = 'home'|'library'|'editor'|'play';
-const SIZE=16;
-const PALETTE=['#00000000','#101828','#ffffff','#ffcf4a','#ff6b6b','#55d6be','#5b8def','#b88cff','#ff9d42','#8fd16a'];
-const key='curiosprite-projects-v01';
-const uid=()=>Math.random().toString(36).slice(2,10);
-const starterPixels=()=>Array.from({length:SIZE*SIZE},(_,i)=>{const x=i%SIZE,y=Math.floor(i/SIZE);return x>=5&&x<=10&&y>=3&&y<=12?'#ffcf4a':'#00000000'});
-const newProject=(name:string):Project=>({id:uid(),name,sprites:[{id:uid(),name:'Hero',pixels:starterPixels()}],createdAt:Date.now()});
-function App(){
- const [screen,setScreen]=useState<Screen>('home');
- const [projects,setProjects]=useState<Project[]>(()=>{try{return JSON.parse(localStorage.getItem(key)||'[]')}catch{return []}});
- const [activeId,setActiveId]=useState<string|null>(null);
- const [color,setColor]=useState('#5b8def');
- const [tool,setTool]=useState<'draw'|'erase'>('draw');
- const [history,setHistory]=useState<string[][]>([]);
- const [position,setPosition]=useState({x:350,y:210});
- const [input,setInput]=useState({up:false,down:false,left:false,right:false});
- const fileRef=useRef<HTMLInputElement>(null);
- const drawing=useRef(false);
- const project=projects.find(p=>p.id===activeId);
- const sprite=project?.sprites[0];
- useEffect(()=>{localStorage.setItem(key,JSON.stringify(projects))},[projects]);
- const open=(id:string,where:Screen='editor')=>{setActiveId(id);setHistory([]);setScreen(where);setPosition({x:350,y:210})};
- const create=()=>{const name=window.prompt('Name your game','My First Quest')?.trim();if(!name)return;const p=newProject(name);setProjects(ps=>[p,...ps]);open(p.id)};
- const updatePixels=(pixels:string[])=>{if(!project||!sprite)return;setProjects(ps=>ps.map(p=>p.id===project.id?{...p,sprites:p.sprites.map(s=>s.id===sprite.id?{...s,pixels}:s)}:p))};
- const paint=(index:number)=>{if(!sprite)return;const next=[...sprite.pixels];const c=tool==='erase'?PALETTE[0]:color;if(next[index]===c)return;next[index]=c;updatePixels(next)};
- const startPaint=(index:number)=>{if(!sprite)return;drawing.current=true;setHistory(h=>[...h.slice(-19),[...sprite.pixels]]);paint(index)};
- const undo=()=>{if(!history.length)return;updatePixels(history[history.length-1]);setHistory(h=>h.slice(0,-1))};
- const exportProject=()=>{if(!project)return;const blob=new Blob([JSON.stringify({format:'curiosprite-project',version:1,project},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=project.name.toLowerCase().replace(/[^a-z0-9]+/g,'-')+'.curio.json';a.click();URL.revokeObjectURL(url)};
- const importProject=async(f?:File)=>{if(!f)return;try{const data=JSON.parse(await f.text());const p=data.project as Project;if(data.format!=='curiosprite-project'||!p?.name||!Array.isArray(p.sprites)||!Array.isArray(p.sprites[0]?.pixels)||p.sprites[0].pixels.length!==256)throw Error();const imported={...p,id:uid(),sprites:p.sprites.map(s=>({...s,id:uid()}))};setProjects(ps=>[imported,...ps]);open(imported.id)}catch{alert('Invalid CurioSprite project file')}};
- useEffect(()=>{const onDown=(e:KeyboardEvent)=>{if(screen==='editor'&&e.ctrlKey&&e.key.toLowerCase()==='z'){e.preventDefault();undo();return}if(screen!=='play')return;const k=e.key.toLowerCase();if(['arrowup','arrowdown','arrowleft','arrowright','w','a','s','d',' '].includes(k))e.preventDefault();setInput(v=>({...v,up:v.up||k==='arrowup'||k==='w',down:v.down||k==='arrowdown'||k==='s',left:v.left||k==='arrowleft'||k==='a',right:v.right||k==='arrowright'||k==='d'}))};const onUp=(e:KeyboardEvent)=>{const k=e.key.toLowerCase();setInput(v=>({...v,up:(k==='arrowup'||k==='w')?false:v.up,down:(k==='arrowdown'||k==='s')?false:v.down,left:(k==='arrowleft'||k==='a')?false:v.left,right:(k==='arrowright'||k==='d')?false:v.right}))};window.addEventListener('keydown',onDown);window.addEventListener('keyup',onUp);return()=>{window.removeEventListener('keydown',onDown);window.removeEventListener('keyup',onUp)}},[screen,history,sprite]);
- useEffect(()=>{if(screen!=='play')return;let frame=0;let prev=performance.now();const loop=(now:number)=>{const dt=Math.min((now-prev)/16.67,3);prev=now;const pads=navigator.getGamepads?.();const pad=pads&&Array.from(pads).find(Boolean);const ax=pad?.axes[0]||0,ay=pad?.axes[1]||0;const b=pad?.buttons||[];const dx=Number(input.right||!!b[15]?.pressed||ax>0.3)-Number(input.left||!!b[14]?.pressed||ax< -0.3);const dy=Number(input.down||!!b[13]?.pressed||ay>0.3)-Number(input.up||!!b[12]?.pressed||ay< -0.3);setPosition(p=>({x:Math.max(0,Math.min(752,p.x+dx*3*dt)),y:Math.max(0,Math.min(432,p.y+dy*3*dt))}));frame=requestAnimationFrame(loop)};frame=requestAnimationFrame(loop);return()=>cancelAnimationFrame(frame)},[screen,input]);
- return <div className="page"><div className="device"><header><button className="brand" onClick={()=>setScreen('home')}><span className="brandIcon">✦</span> Curio<span>Sprite</span></button><span className="status">PROTOTYPE 0.1 <i/></span></header>
- {screen==='home'&&<main className="home"><div className="eyebrow">WELCOME TO YOUR GAME STUDIO</div><h1>What Quest will<br/><em>you create?</em></h1><p>Dream it. Draw it. Build it. Play it.</p><div className="actions"><button className="tile primary" onClick={create}><Plus size={27}/><strong>Create a game</strong><small>Start something new</small></button><button className="tile" onClick={()=>setScreen('library')}><FolderOpen size={27}/><strong>My games</strong><small>{projects.length} saved project{projects.length===1?'':'s'}</small></button></div><div className="footerWords">QUESTION <b>·</b> UNDERSTAND <b>·</b> EXPLORE <b>·</b> SHARE <b>·</b> TEST</div></main>}
- {screen==='library'&&<main className="panel"><div className="toolbar"><button onClick={()=>setScreen('home')}><ArrowLeft size={17}/> Back</button><h2>My Games</h2><button className="accent" onClick={create}><Plus size={16}/> New</button></div><div className="projects">{projects.length===0?<div className="empty">No games yet. Create your first quest!</div>:projects.map(p=><div className="project" key={p.id}><div className="projectIcon">✦</div><div className="projectInfo"><strong>{p.name}</strong><small>{p.sprites.length} sprite{p.sprites.length===1?'':'s'}</small></div><button onClick={()=>open(p.id)}>Edit</button><button onClick={()=>open(p.id,'play')}><Play size={16}/></button><button title="Delete" onClick={()=>{if(confirm(`Delete ${p.name}?`))setProjects(ps=>ps.filter(x=>x.id!==p.id))}}><Trash2 size={15}/></button></div>)}</div><div className="import"><button onClick={()=>fileRef.current?.click()}><Upload size={15}/> Import project</button></div></main>}
- {screen==='editor'&&sprite&&<main className="panel"><div className="toolbar"><button onClick={()=>setScreen('library')}><ArrowLeft size={17}/> Games</button><h2 className="projectTitle">{project?.name} <span>/ Sprite Editor</span></h2><button onClick={exportProject}><Download size={16}/> Export</button><button className="accent" onClick={()=>setScreen('play')}><Play size={16}/> Test</button></div><div className="editor"><aside><strong>TOOLS</strong><button className={tool==='draw'?'selected':''} onClick={()=>setTool('draw')}><Pencil size={18}/> Pencil</button><button className={tool==='erase'?'selected':''} onClick={()=>setTool('erase')}><Trash2 size={18}/> Eraser</button><button onClick={undo} disabled={!history.length}><RotateCcw size={18}/> Undo</button><button onClick={()=>{if(confirm('Clear sprite?')){setHistory(h=>[...h,[...sprite.pixels]]);updatePixels(Array(256).fill(PALETTE[0]))}}}><Trash2 size={18}/> Clear</button></aside><section className="canvasArea"><div className="canvasLabel">{sprite.name} <span>16 × 16 pixels</span></div><div className="pixelGrid" onPointerUp={()=>drawing.current=false} onPointerLeave={()=>drawing.current=false}>{sprite.pixels.map((c,i)=><div key={i} onPointerDown={e=>{e.preventDefault();startPaint(i)}} onPointerEnter={()=>{if(drawing.current)paint(i)}} style={{backgroundColor:c==='transparent'?'#00000000':c}}/>)}</div></section><aside className="palette"><strong>COLORS</strong><div className="swatches">{PALETTE.map(c=><button key={c} aria-label={`Color ${c}`} className={color===c?'current':''} style={{background:c==='transparent'?'#f5f5f5':c}} onClick={()=>{setColor(c);setTool(c===PALETTE[0]?'erase':'draw')}}/>)}</div><p>Draw with mouse or touch. Export your project to share it.</p><button className="save" onClick={()=>alert('Saved automatically on this browser.')}><Save size={16}/> Saved locally</button></aside></div></main>}
- {screen==='play'&&sprite&&<main className="play"><div className="playTop"><button onClick={()=>setScreen('editor')}><ArrowLeft size={17}/> Editor</button><strong>{project?.name}</strong><span>GAME TEST</span></div><div className="stage"><div className="playerSprite" style={{left:position.x,top:position.y}}>{sprite.pixels.map((c,i)=><span key={i} style={{background:c}}/>)}</div><div className="stageHint">Move with arrows / WASD / gamepad</div></div><div className="touchControls"><div><button onPointerDown={()=>setInput(v=>({...v,left:true}))} onPointerUp={()=>setInput(v=>({...v,left:false}))} onPointerLeave={()=>setInput(v=>({...v,left:false}))}>◀</button><button onPointerDown={()=>setInput(v=>({...v,right:true}))} onPointerUp={()=>setInput(v=>({...v,right:false}))} onPointerLeave={()=>setInput(v=>({...v,right:false}))}>▶</button><button onPointerDown={()=>setInput(v=>({...v,up:true}))} onPointerUp={()=>setInput(v=>({...v,up:false}))} onPointerLeave={()=>setInput(v=>({...v,up:false}))}>▲</button><button onPointerDown={()=>setInput(v=>({...v,down:true}))} onPointerUp={()=>setInput(v=>({...v,down:false}))} onPointerLeave={()=>setInput(v=>({...v,down:false}))}>▼</button></div><span>Controller test • movement only</span><Gamepad2 size={22}/></div></main>}
- <input ref={fileRef} type="file" accept=".json,.curio" hidden onChange={e=>{void importProject(e.target.files?.[0]);e.target.value=''}}/></div><div className="below">CurioSprite Developer Preview · Responsive web app · Handheld target: 800 × 480</div></div>
-}
-createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>);
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <DialogProvider>
+      <App />
+    </DialogProvider>
+  </StrictMode>,
+);
