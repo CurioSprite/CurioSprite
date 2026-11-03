@@ -2,6 +2,7 @@ import { ArrowRight, Flag, Heart, Home, Lock, Pause, Play, RotateCcw, Shield, Sw
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Action } from '../input/bindings';
 import { InputManager } from '../input/InputManager';
+import { STICK_CENTRED, clampToStick, stickDirections, type StickDirections } from '../input/joystick';
 import { levelView } from '../models/levels';
 import type { Project } from '../models/project';
 import { LevelSelect } from '../components/LevelSelect';
@@ -42,6 +43,59 @@ function PadButton({ input, action, className, label, children }: { input: Input
     >
       {children}
     </button>
+  );
+}
+
+/** How far (px) the thumb can push the stick from its middle. */
+const STICK_REACH = 44;
+const STICK_WAYS = ['up', 'down', 'left', 'right'] as const;
+
+/** On-screen joystick: drag the knob, and it holds the arrows that way (diagonals hold two). */
+function TouchStick({ input }: { input: InputManager }) {
+  const [knob, setKnob] = useState<{ x: number; y: number } | null>(null);
+  const held = useRef<StickDirections>(STICK_CENTRED);
+  const centre = useRef({ x: 0, y: 0 });
+  const finger = useRef<number | null>(null);
+  const hold = (next: StickDirections) => {
+    for (const way of STICK_WAYS) if (next[way] !== held.current[way]) input.setVirtual(way, next[way]);
+    held.current = next;
+  };
+  const follow = (clientX: number, clientY: number) => {
+    const dx = clientX - centre.current.x;
+    const dy = clientY - centre.current.y;
+    setKnob(clampToStick(dx, dy, STICK_REACH));
+    hold(stickDirections(dx, dy, STICK_REACH));
+  };
+  const release = () => {
+    finger.current = null;
+    setKnob(null);
+    hold(STICK_CENTRED);
+  };
+  // Let go of everything if the pad goes away mid-push.
+  useEffect(() => () => hold(STICK_CENTRED), []);
+  return (
+    <div
+      className={`stick${knob ? ' active' : ''}`}
+      role="presentation"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        if (finger.current !== null) return;
+        finger.current = e.pointerId;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        const r = e.currentTarget.getBoundingClientRect();
+        centre.current = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        follow(e.clientX, e.clientY);
+      }}
+      onPointerMove={(e) => {
+        if (e.pointerId === finger.current) follow(e.clientX, e.clientY);
+      }}
+      onPointerUp={(e) => e.pointerId === finger.current && release()}
+      onPointerCancel={(e) => e.pointerId === finger.current && release()}
+      onLostPointerCapture={(e) => e.pointerId === finger.current && release()}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <div className="stickKnob" style={knob ? { transform: `translate(${knob.x}px, ${knob.y}px)` } : undefined} />
+    </div>
   );
 }
 
@@ -329,12 +383,7 @@ function LevelPlay({ game, levelIndex, onUnlock, exitLabel, onExit, onNext, onGo
 
         {showPad && (
           <div className="touchPad">
-            <div className="dpad">
-              <PadButton input={input} action="up" className="up" label="Up">▲</PadButton>
-              <PadButton input={input} action="left" className="left" label="Left">◀</PadButton>
-              <PadButton input={input} action="right" className="right" label="Right">▶</PadButton>
-              <PadButton input={input} action="down" className="down" label="Down">▼</PadButton>
-            </div>
+            <TouchStick input={input} />
             <div className="faceButtons">
               <PadButton input={input} action="secondary" className="b" label="B">B</PadButton>
               <PadButton input={input} action="primary" className="a" label="A">A</PadButton>

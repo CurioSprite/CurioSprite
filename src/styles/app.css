@@ -577,11 +577,33 @@ button:disabled { opacity: 0.4; cursor: default; }
   -webkit-user-select: none;
 }
 .padBtn:active { background: #ffffff66; }
-.dpad { display: grid; grid-template-columns: repeat(3, 58px); grid-template-rows: repeat(3, 58px); gap: 2px; }
-.dpad .up { grid-area: 1 / 2; }
-.dpad .left { grid-area: 2 / 1; }
-.dpad .right { grid-area: 2 / 3; }
-.dpad .down { grid-area: 3 / 2; }
+.stick {
+  pointer-events: auto;
+  position: relative;
+  width: 148px;
+  height: 148px;
+  border-radius: 50%;
+  /* Dark enough to see on light levels, light enough to see on dark ones. */
+  background: radial-gradient(circle, #0b102033 0 38%, #0b10204d 39% 100%);
+  border: 2px solid #ffffff88;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.stickKnob {
+  position: absolute;
+  left: calc(50% - 32px);
+  top: calc(50% - 32px);
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #ffffff66;
+  border: 2px solid #ffffffaa;
+  box-shadow: 0 4px 10px #0006;
+  transition: transform 0.12s ease-out;
+  pointer-events: none;
+}
+.stick.active .stickKnob { background: #ffffff99; transition: none; }
 .faceButtons { display: flex; gap: 14px; align-items: flex-end; }
 .faceButtons .padBtn { width: 70px; height: 70px; border-radius: 50%; font-size: 24px; }
 .faceButtons .a { background: #f43f5e88; margin-bottom: 30px; }
