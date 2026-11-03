@@ -145,7 +145,7 @@ export class GameRunner {
       let first: InputFrame | null = frame;
       while (this.acc >= STEP) {
         // Edge-triggered presses only apply to the first sub-step.
-        stepGame(this.state, first ?? { held: frame.held, pressed: emptyActionState() }, STEP);
+        stepGame(this.state, first ?? { held: frame.held, pressed: emptyActionState(), stick: frame.stick }, STEP);
         first = null;
         this.acc -= STEP;
       }

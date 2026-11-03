@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptyActionState, readGamepad, type Action } from '../input/bindings';
+import { emptyActionState, readGamepad, readGamepadStick, type Action } from '../input/bindings';
 import type { InputFrame } from '../input/InputManager';
 import { createLevelProject } from '../testing';
 import { TILE, type WinRule } from '../models/project';
@@ -87,6 +87,11 @@ describe('gamepad mapping', () => {
   it('ignores stick drift inside the deadzone', () => {
     const s = readGamepad(pad([], [0.2, -0.3]));
     expect(Object.values(s).some(Boolean)).toBe(false);
+    expect(readGamepadStick(pad([], [0.2, -0.3]))).toBeNull();
+  });
+
+  it('reads the exact way the stick is pushed', () => {
+    expect(readGamepadStick(pad([], [0.6, -0.8]))).toEqual({ x: 0.6, y: -0.8 });
   });
 });
 
@@ -103,6 +108,16 @@ describe('InputManager', () => {
     listeners.keyup(key);
     expect(input.poll().pressed.home).toBe(true);
     expect(input.poll().pressed.home).toBe(false);
+  });
+
+  it('passes on the on-screen joystick\'s exact way until it is let go', async () => {
+    const { InputManager } = await import('../input/InputManager');
+    const input = new InputManager();
+    expect(input.poll().stick).toBeNull();
+    input.setVirtualStick({ x: 0.5, y: -0.5 });
+    expect(input.poll().stick).toEqual({ x: 0.5, y: -0.5 });
+    input.setVirtualStick(null);
+    expect(input.poll().stick).toBeNull();
   });
 });
 

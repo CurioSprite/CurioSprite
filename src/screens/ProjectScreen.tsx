@@ -482,7 +482,7 @@ export function ProjectScreen({ project, dirty, onChange, onSave, onBack, onEdit
             </>
           )}
           {view.settings.mode === 'shooter' && (
-            <p className="settingNote">The hero is a ship: ← → turn it, ↑ thrusts the way it points, ↓ brakes, and it drifts when you let go. Bumping into anything solid too fast hurts. Enemies on screen fire back. Always played in real time.</p>
+            <p className="settingNote">The hero is a ship: point the arrows or joystick the way to fly, and it swings round and thrusts that way. B brakes, and it drifts when you let go. Bumping into anything solid too fast hurts. Enemies on screen fire back. Always played in real time.</p>
           )}
           {view.settings.mode === 'platformer' && (
             <>

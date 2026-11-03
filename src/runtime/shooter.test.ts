@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptyActionState, type Action } from '../input/bindings';
+import { emptyActionState, type Action, type Stick } from '../input/bindings';
 import type { InputFrame } from '../input/InputManager';
 import { createProject } from '../models/defaults';
 import { addLevel, levelView } from '../models/levels';
@@ -8,8 +8,8 @@ import { parseProject, validateProject } from '../models/serialization';
 import { createShooterProject } from '../models/shooter';
 import { createGame, stepGame, type GameState } from './game';
 
-function frame(held: Action[] = [], pressed: Action[] = []): InputFrame {
-  const f = { held: emptyActionState(), pressed: emptyActionState() };
+function frame(held: Action[] = [], pressed: Action[] = [], stick?: Stick): InputFrame {
+  const f = { held: emptyActionState(), pressed: emptyActionState(), stick };
   for (const a of held) f.held[a] = true;
   for (const a of pressed) f.pressed[a] = f.held[a] = true;
   return f;
@@ -109,7 +109,7 @@ function landDistances(g: GameState): number[] {
 const speedOf = (g: GameState) => Math.hypot(g.player.vx, g.player.vy);
 
 describe('flying a shooter', () => {
-  it('↑ thrusts the way the ship points, and it drifts on (slowing) when let go; always played in real time', () => {
+  it('↑ flies up, and it drifts on (slowing) when let go; always played in real time', () => {
     const p = shooter();
     p.rules = [];
     p.settings = { ...p.settings, battle: 'turns' };
@@ -129,32 +129,69 @@ describe('flying a shooter', () => {
     expect(speedOf(g)).toBeGreaterThan(fast * 0.7);
   });
 
-  it('← → turn the ship, and then it thrusts and fires that way', () => {
+  it('the ship swings round to face the way the arrows point, then flies and fires that way', () => {
     const g = quiet();
     g.bombIn = 999;
-    // A quarter turn to the right.
-    let n = 0;
-    while (g.flight.heading < Math.PI / 2 && n++ < 200) run(g, 1, ['right']);
-    expect(g.flight.heading).toBeCloseTo(Math.PI / 2, 1);
+    // It turns, not jumps, round to the right…
+    stepGame(g, frame(['right']));
+    expect(g.flight.heading).toBeGreaterThan(0);
+    expect(g.flight.heading).toBeLessThan(Math.PI / 4);
+    run(g, 30, ['right']);
+    expect(g.flight.heading).toBeCloseTo(Math.PI / 2, 5);
     expect(g.player.face).toEqual({ x: 1, y: 0 });
-    g.flight.heading = Math.PI / 2;
+    // …and flies that way.
     const { x, y } = g.player;
-    run(g, 10, ['up']);
-    expect(g.player.x).toBeGreaterThan(x);
-    expect(Math.abs(g.player.y - y)).toBeLessThan(2);
+    run(g, 10, ['right']);
+    // (A little upward drift is left from swinging round.)
+    expect(g.player.x - x).toBeGreaterThan(Math.abs(g.player.y - y) * 2);
     stepGame(g, frame([], ['primary']));
     expect(g.shots[0].vx).toBeGreaterThan(SHOT_FAST);
     expect(Math.abs(g.shots[0].vy)).toBeLessThan(5);
-    run(g, 40, ['left']);
-    expect(g.flight.heading).toBeLessThan(0);
+    // Two arrows point between them.
+    run(g, 40, ['up', 'left']);
+    expect(g.flight.heading).toBeCloseTo(-Math.PI / 4, 5);
   });
 
-  it('↓ brakes', () => {
+  it('turning right round, it swings first and only thrusts once it points roughly the new way, keeping its drift meanwhile', () => {
+    const g = quiet();
+    run(g, 40, ['up']);
+    const vy = g.player.vy;
+    expect(vy).toBeLessThan(-20);
+    stepGame(g, frame(['down']));
+    expect(g.flight.thrusting).toBe(false);
+    // Still drifting up while it turns.
+    expect(g.player.vy).toBeLessThan(0);
+    run(g, 40, ['down']);
+    expect(Math.abs(g.flight.heading)).toBeCloseTo(Math.PI, 5);
+    expect(g.flight.thrusting).toBe(true);
+    // Thrusting the new way slows the old drift, then carries it down.
+    expect(g.player.vy).toBeGreaterThan(vy);
+    run(g, 40, ['down']);
+    expect(g.player.vy).toBeGreaterThan(0);
+  });
+
+  it('a joystick points the ship exactly, and a gentle push thrusts gently', () => {
+    const g = quiet();
+    // Up and a little right: between the eight arrow ways.
+    const way = { x: Math.sin(0.3), y: -Math.cos(0.3) };
+    run(g, 1);
+    for (let i = 0; i < 30; i++) stepGame(g, frame(['up'], [], way));
+    expect(g.flight.heading).toBeCloseTo(0.3, 5);
+    const full = speedOf(g);
+    const h = quiet();
+    for (let i = 0; i < 30; i++) stepGame(h, frame(['up'], [], { x: way.x * 0.4, y: way.y * 0.4 }));
+    expect(h.flight.heading).toBeCloseTo(0.3, 5);
+    expect(speedOf(h)).toBeLessThan(full * 0.6);
+    expect(speedOf(h)).toBeGreaterThan(0);
+  });
+
+  it('B brakes, and only A fires', () => {
     const g = quiet();
     run(g, 40, ['up']);
     const fast = speedOf(g);
-    run(g, 30, ['down']);
+    for (let i = 0; i < 30; i++) stepGame(g, frame(['secondary'], i === 0 ? ['secondary'] : []));
     expect(speedOf(g)).toBeLessThan(fast * 0.4);
+    expect(g.shots).toHaveLength(0);
   });
 
   it('the screen follows the ship, looking ahead the way it flies', () => {
@@ -314,7 +351,7 @@ describe('flying a shooter', () => {
     expect(parseProject(broken).ok).toBe(false);
   });
 
-  it('a pilot who follows the water, turning and thrusting and firing ahead, reaches the finish line', () => {
+  it('a pilot who follows the water, pointing the joystick and firing ahead, reaches the finish line', () => {
     const g = quiet();
     const ts = g.tileSize;
     const d = distances(g);
@@ -346,11 +383,11 @@ describe('flying a shooter', () => {
       const aimY = enemy ? enemy.y + enemy.h / 2 : ty;
       const want = Math.atan2(aimX - cx, -(aimY - cy));
       const off = Math.atan2(Math.sin(want - g.flight.heading), Math.cos(want - g.flight.heading));
-      const held: Action[] = [];
-      if (Math.abs(off) > 0.08) held.push(off > 0 ? 'right' : 'left');
-      if (!enemy && Math.abs(off) < 0.5 && speedOf(g) < 55) held.push('up');
-      if (enemy || speedOf(g) > 75 || Math.abs(off) > 1) held.push('down');
-      stepGame(g, frame(held, enemy && Math.abs(off) < 0.15 && steps % 6 === 0 ? ['primary'] : []));
+      // Point the stick there: hard to speed up, barely (just to turn) otherwise.
+      const push = !enemy && Math.abs(off) < 0.5 && speedOf(g) < 55 ? 1 : 0.02;
+      const stick = { x: Math.sin(want) * push, y: -Math.cos(want) * push };
+      const held: Action[] = enemy || speedOf(g) > 75 || Math.abs(off) > 1 ? ['secondary'] : [];
+      stepGame(g, frame(held, enemy && Math.abs(off) < 0.15 && steps % 6 === 0 ? ['primary'] : [], stick));
     }
     expect(g.status).toBe('won');
     expect(g.defeated).toBeGreaterThan(0);

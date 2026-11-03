@@ -18,7 +18,7 @@ export const LEVEL_KIND_TEXT: Record<LevelKind, { label: string; hint: string }>
   climb: { label: 'Climb', hint: 'Jump up a tall tower' },
   topdown: { label: 'Top-down', hint: 'Look down from above' },
   adventure: { label: 'Adventure', hint: 'Explore, talk, meet wild creatures' },
-  shooter: { label: 'Shooter', hint: 'Turn and thrust along a canal' },
+  shooter: { label: 'Shooter', hint: 'Steer a ship along a canal' },
 };
 
 /** Does the rule apply in this level (its own, or one for every level)? */

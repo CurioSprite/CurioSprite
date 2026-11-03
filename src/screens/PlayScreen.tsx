@@ -60,19 +60,27 @@ function TouchStick({ input }: { input: InputManager }) {
     for (const way of STICK_WAYS) if (next[way] !== held.current[way]) input.setVirtual(way, next[way]);
     held.current = next;
   };
+  const centred = () => {
+    hold(STICK_CENTRED);
+    input.setVirtualStick(null);
+  };
   const follow = (clientX: number, clientY: number) => {
     const dx = clientX - centre.current.x;
     const dy = clientY - centre.current.y;
-    setKnob(clampToStick(dx, dy, STICK_REACH));
-    hold(stickDirections(dx, dy, STICK_REACH));
+    const at = clampToStick(dx, dy, STICK_REACH);
+    setKnob(at);
+    const ways = stickDirections(dx, dy, STICK_REACH);
+    hold(ways);
+    // The exact way too, for games that can use it (a shooter's ship faces it).
+    input.setVirtualStick(ways === STICK_CENTRED ? null : { x: at.x / STICK_REACH, y: at.y / STICK_REACH });
   };
   const release = () => {
     finger.current = null;
     setKnob(null);
-    hold(STICK_CENTRED);
+    centred();
   };
   // Let go of everything if the pad goes away mid-push.
-  useEffect(() => () => hold(STICK_CENTRED), []);
+  useEffect(() => centred, []);
   return (
     <div
       className={`stick${knob ? ' active' : ''}`}
@@ -232,7 +240,7 @@ function LevelPlay({ game, levelIndex, onUnlock, exitLabel, onExit, onNext, onGo
   const heroBack = heroSprite && { width: heroSprite.width, height: heroSprite.height, pixels: heroSprite.back?.[0] ?? heroSprite.pixels };
   const controls =
     mode === 'shooter'
-      ? 'Turn: ← → / A D · Thrust: ↑ · Brake: ↓ · Fire: Z / Space'
+      ? 'Fly: arrows / WASD · Brake: X · Fire: Z / Space'
       : mode === 'platformer'
       ? `Move: arrows / WASD · Jump: Z / Space${battleStyle === 'action' ? ' · Attack: X' : ''}`
       : battleStyle === 'action'

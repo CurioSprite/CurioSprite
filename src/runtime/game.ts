@@ -34,11 +34,14 @@ const RUN_MULTIPLIER = 1.8;
 /** Chance a wild creature jumps out on each step into tall grass. */
 const ENCOUNTER_CHANCE = 0.12;
 /**
- * Shooter: ← → turn the ship, ↑ thrusts the way it points and ↓ brakes. It
- * keeps drifting when you let go, slowing a little. Bumping the bank hard
- * costs a heart. Enemies on screen fire at it now and then.
+ * Shooter: the arrows (or joystick) point the way to fly. The ship swings
+ * round to face it, and thrusts once it points roughly that way. B brakes.
+ * It keeps drifting when you let go, slowing a little. Bumping the bank hard
+ * hurts. Enemies on screen fire at it now and then.
  */
-const TURN_RATE = 3.2;
+const TURN_RATE = 5;
+/** The ship only thrusts once it points within this much (radians) of the way it is told to go. */
+const THRUST_WITHIN = Math.PI / 2;
 const THRUST = 160;
 const BRAKE = 2.5;
 const DRAG = 0.35;
@@ -635,10 +638,9 @@ function axis(frame: InputFrame): { x: number; y: number } {
   return { x: Number(h.right) - Number(h.left), y: Number(h.down) - Number(h.up) };
 }
 
-/** The button that attacks in action battles: B in side view (A jumps), A in top-down, either in a shooter. */
+/** The button that attacks in action battles: B in side view (A jumps), A in top-down and shooters (B brakes). */
 const attackPressed = (s: GameState, frame: InputFrame): boolean =>
-  s.battleStyle === 'action' &&
-  (s.mode === 'platformer' ? frame.pressed.secondary : s.mode === 'shooter' ? frame.pressed.primary || frame.pressed.secondary : frame.pressed.primary);
+  s.battleStyle === 'action' && (s.mode === 'platformer' ? frame.pressed.secondary : frame.pressed.primary);
 
 function stepPlatformer(s: GameState, frame: InputFrame, dt: number): void {
   const p = s.player;
@@ -872,19 +874,30 @@ const onScreen = (s: GameState, b: Box): boolean => {
  * Shooter: ← → turn, ↑ thrusts the way the ship points, ↓ brakes; it drifts
  * on when let go. It bounces off land, and a hard bump costs a heart.
  */
+/** The same angle, between -π and π. */
+const wrapAngle = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
+
 function stepShooter(s: GameState, frame: InputFrame, dt: number): void {
   const p = s.player;
   const f = s.flight;
-  const dir = axis(frame);
-  f.heading += dir.x * TURN_RATE * dt;
-  f.heading = Math.atan2(Math.sin(f.heading), Math.cos(f.heading));
-  const ahead = headingDir(s);
-  f.thrusting = dir.y < 0;
-  if (f.thrusting) {
-    p.vx += ahead.x * THRUST * dt;
-    p.vy += ahead.y * THRUST * dt;
+  // A joystick points exactly (and a gentle push thrusts gently); the arrows point eight ways.
+  const aim = frame.stick ?? axis(frame);
+  const push = Math.min(1, Math.hypot(aim.x, aim.y));
+  f.thrusting = false;
+  if (push > 0) {
+    // Swing round toward the way it points (the short way), no faster than the ship can turn.
+    const want = Math.atan2(aim.x, -aim.y);
+    const off = wrapAngle(want - f.heading);
+    const turn = TURN_RATE * dt;
+    f.heading = wrapAngle(Math.abs(off) <= turn ? want : f.heading + Math.sign(off) * turn);
+    f.thrusting = Math.abs(wrapAngle(want - f.heading)) < THRUST_WITHIN;
   }
-  const slow = Math.max(0, 1 - (dir.y > 0 ? BRAKE : DRAG) * dt);
+  const ahead = headingDir(s);
+  if (f.thrusting) {
+    p.vx += ahead.x * THRUST * push * dt;
+    p.vy += ahead.y * THRUST * push * dt;
+  }
+  const slow = Math.max(0, 1 - (frame.held.secondary ? BRAKE : DRAG) * dt);
   p.vx *= slow;
   p.vy *= slow;
   const speed = Math.hypot(p.vx, p.vy);

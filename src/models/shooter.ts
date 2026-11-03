@@ -320,7 +320,7 @@ function shooterMap(ids: Record<KitPart, string>, p: Pick<Level, 'collectibleSpr
 }
 
 function shooterRules(level: Level): Rule[] {
-  return [{ id: createId(), when: { on: 'start' }, then: { do: 'message', text: 'Fly the canal to the finish! ← → turn, ↑ thrust, ↓ brake, A fires.' }, levelId: level.id }];
+  return [{ id: createId(), when: { on: 'start' }, then: { do: 'message', text: 'Fly the canal to the finish! Point the way to fly, B brakes, A fires.' }, levelId: level.id }];
 }
 
 /** A whole new shooter game: the ship and a laser, with a health bar and a shield. */

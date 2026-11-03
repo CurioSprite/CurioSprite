@@ -3,10 +3,12 @@ import {
   DEFAULT_BINDINGS,
   actionForKey,
   emptyActionState,
+  readAllGamepadSticks,
   readAllGamepads,
   type Action,
   type ActionState,
   type InputBindings,
+  type Stick,
 } from './bindings';
 
 export interface InputFrame {
@@ -14,6 +16,8 @@ export interface InputFrame {
   held: ActionState;
   /** Actions that went down since the previous poll. */
   pressed: ActionState;
+  /** The exact way a joystick (on screen or a gamepad's thumbstick) is pushed, if one is. The arrows above are held too. */
+  stick?: Stick | null;
 }
 
 /**
@@ -26,6 +30,7 @@ export class InputManager {
   private previous = emptyActionState();
   /** Presses since the last poll, so a tap shorter than one frame is not lost. */
   private latched = emptyActionState();
+  private virtualStick: Stick | null = null;
   private target: Window | null = null;
 
   constructor(private bindings: InputBindings = DEFAULT_BINDINGS) {}
@@ -58,6 +63,11 @@ export class InputManager {
     this.virtual[action] = down;
   }
 
+  /** Used by the on-screen joystick: how far it is pushed each way, or null when let go. */
+  setVirtualStick(stick: Stick | null): void {
+    this.virtualStick = stick;
+  }
+
   poll(): InputFrame {
     const pads = readAllGamepads(this.bindings);
     const held = emptyActionState();
@@ -69,13 +79,14 @@ export class InputManager {
     }
     this.previous = held;
     this.latched = emptyActionState();
-    return { held, pressed };
+    return { held, pressed, stick: this.virtualStick ?? readAllGamepadSticks(this.bindings) };
   }
 
   readonly reset = (): void => {
     this.keys = emptyActionState();
     this.virtual = emptyActionState();
     this.latched = emptyActionState();
+    this.virtualStick = null;
   };
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {

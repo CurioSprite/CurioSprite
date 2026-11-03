@@ -45,6 +45,9 @@ export const DEFAULT_BINDINGS: InputBindings = {
 
 export type ActionState = Record<Action, boolean>;
 
+/** An exact direction from a joystick: right and down are positive, each from -1 to 1. */
+export type Stick = { x: number; y: number };
+
 export function emptyActionState(): ActionState {
   return { up: false, down: false, left: false, right: false, primary: false, secondary: false, start: false, home: false };
 }
@@ -71,6 +74,24 @@ export function readGamepad(pad: GamepadSnapshot, bindings: InputBindings = DEFA
   if (ay < -deadzone) state.up = true;
   if (ay > deadzone) state.down = true;
   return state;
+}
+
+/** A thumbstick's exact direction (each -1 to 1), when it is pushed past the dead zone. */
+export function readGamepadStick(pad: GamepadSnapshot, bindings: InputBindings = DEFAULT_BINDINGS): Stick | null {
+  const { horizontal, vertical, deadzone } = bindings.gamepadAxes;
+  const x = pad.axes[horizontal] ?? 0;
+  const y = pad.axes[vertical] ?? 0;
+  return Math.hypot(x, y) > deadzone ? { x, y } : null;
+}
+
+/** The first connected gamepad's pushed thumbstick, if any. */
+export function readAllGamepadSticks(bindings: InputBindings = DEFAULT_BINDINGS): Stick | null {
+  const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
+  for (const pad of pads) {
+    const stick = pad?.connected ? readGamepadStick(pad, bindings) : null;
+    if (stick) return stick;
+  }
+  return null;
 }
 
 /** Combined state of every connected gamepad. */
