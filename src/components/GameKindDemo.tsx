@@ -4,6 +4,7 @@ import { frameCount, frameOf, pickView, viewOf } from '../editor/spriteOps';
 import { createSpriteCanvas } from '../graphics/spriteCanvas';
 import { createAdventureProject } from '../models/adventure';
 import { createProject } from '../models/defaults';
+import { createRacingProject } from '../models/racing';
 import { createShooterProject } from '../models/shooter';
 import { LEVEL_KINDS, LEVEL_KIND_TEXT, type LevelKind } from '../models/levels';
 import type { AnimatedImage, Facing, GameMode, Project } from '../models/project';
@@ -35,7 +36,7 @@ function starterArt(): Map<string, Pictures> {
   if (kit) return kit;
   kit = new Map();
   const when = new Date(0);
-  for (const p of [createProject('demo', when, 'platformer'), createProject('demo', when, 'topdown'), createAdventureProject('demo', when), createShooterProject('demo', when)]) {
+  for (const p of [createProject('demo', when, 'platformer'), createAdventureProject('demo', when), createShooterProject('demo', when), createRacingProject('demo', when)]) {
     for (const s of p.sprites) if (!kit.has(s.name)) kit.set(s.name, picturesOf(s, p.palette));
   }
   return kit;
@@ -49,8 +50,8 @@ export function heroOf(project: Project): DemoHero | undefined {
 
 const heroArt = new WeakMap<AnimatedImage, Pictures>();
 function heroPictures(hero: DemoHero | undefined, kind: LevelKind): Pictures {
-  // Without a hero of their own, a shooter flies the starter ship.
-  if (!hero) return starterArt().get(kind === 'shooter' ? 'Ship' : 'Hero')!;
+  // Without a hero of their own, a shooter flies the starter ship and a race drives the starter car.
+  if (!hero) return starterArt().get(kind === 'shooter' ? 'Ship' : kind === 'racing' ? 'Race car' : 'Hero')!;
   let p = heroArt.get(hero.sprite);
   if (!p) heroArt.set(hero.sprite, (p = picturesOf(hero.sprite, hero.palette)));
   return p;
@@ -166,47 +167,6 @@ function climbScene({ ctx, hero, t }: Scene) {
   put(ctx, hero, hx, hy, { facing: v.facing, mirror: v.mirror });
   if (hop >= HOPS) sparkle(ctx, ledgeX(HOPS) + 24, ledgeTop(HOPS) - 8, ((time - HOPS * HOP) % 0.4));
   ctx.restore();
-}
-
-/** Walking round a walled room, turning at the corners and picking up coins. */
-function topdownScene({ ctx, hero, t }: Scene) {
-  const art = starterArt();
-  ctx.fillStyle = '#bbf7d0';
-  ctx.fillRect(0, 0, W, H);
-  for (let x = 0; x < W; x += 16) {
-    put(ctx, art.get('Wall'), x, 0);
-    put(ctx, art.get('Wall'), x, 48);
-  }
-  for (const x of [0, 80]) {
-    put(ctx, art.get('Wall'), x, 16);
-    put(ctx, art.get('Wall'), x, 32);
-  }
-  // Around the room: right, down, left, up.
-  const legs = [
-    { x: 16, y: 16, dx: 1, dy: 0, n: 48 },
-    { x: 64, y: 16, dx: 0, dy: 1, n: 16 },
-    { x: 64, y: 32, dx: -1, dy: 0, n: 48 },
-    { x: 16, y: 32, dx: 0, dy: -1, n: 16 },
-  ];
-  const loop = legs.reduce((a, l) => a + l.n, 0);
-  const SPEED = 30;
-  const along = (t * SPEED) % loop;
-  const at = (d: number) => {
-    let left = d;
-    for (const l of legs) {
-      if (left < l.n) return { x: l.x + l.dx * left, y: l.y + l.dy * left, dir: { x: l.dx, y: l.dy } };
-      left -= l.n;
-    }
-    return { x: legs[0].x, y: legs[0].y, dir: { x: 1, y: 0 } };
-  };
-  for (const d of [16, 32, 64, 80, 96, 112]) {
-    const c = at(d);
-    if (along < d) put(ctx, art.get('Coin'), c.x, c.y, { frame: t * 6 });
-    else sparkle(ctx, c.x + 8, c.y + 8, (along - d) / SPEED);
-  }
-  const h = at(along);
-  const v = heroView(hero, 'topdown', h.dir);
-  put(ctx, hero, h.x, h.y, { facing: v.facing, mirror: v.mirror, frame: t * 8 });
 }
 
 /** Square by square along a path into tall grass, where a wild creature jumps out. */
@@ -383,12 +343,76 @@ function shooterScene({ ctx, hero, t }: Scene) {
   ctx.fillRect(W - 5, 31 + Math.round(28 * (1 - share)), 2, Math.round(28 * share));
 }
 
+/** From the driver's seat: the road winds away to the hills, kerbs flash by, and the hero's car catches a rival and gets past. */
+function racingScene({ ctx, t }: Scene) {
+  const art = starterArt();
+  const HORIZON = 26;
+  const LOOP = 6;
+  const time = t % LOOP;
+  // Sky, and hills that slide across as the road bends.
+  const bend = Math.sin(time * 1.1) * 0.9;
+  ctx.fillStyle = '#7dd3fc';
+  ctx.fillRect(0, 0, W, HORIZON);
+  ctx.fillStyle = '#65a30d';
+  for (let x = 0; x < W; x++) {
+    const hill = 4 + 3 * Math.sin((x + bend * 40) / 9) + 2 * Math.sin((x + bend * 40) / 4 + 1);
+    ctx.fillRect(x, HORIZON - Math.round(hill), 1, Math.round(hill));
+  }
+  // The road, row by row: wider and further round the bend the nearer it is.
+  const travelled = time * 9;
+  for (let y = HORIZON; y < H; y++) {
+    const near = (y - HORIZON + 1) / (H - HORIZON);
+    const ahead = 1 / near;
+    const middle = W / 2 + bend * 30 * (1 - near) * (1 - near);
+    const half = 4 + near * 52;
+    const stripe = Math.floor(travelled + ahead * 1.5) % 2 === 0;
+    ctx.fillStyle = stripe ? '#84cc16' : '#65a30d';
+    ctx.fillRect(0, y, W, 1);
+    ctx.fillStyle = stripe ? '#ef4444' : '#f4f4f4';
+    ctx.fillRect(Math.round(middle - half - near * 6), y, Math.round(half * 2 + near * 12), 1);
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(Math.round(middle - half), y, Math.round(half * 2), 1);
+    if (stripe && near > 0.15) {
+      ctx.fillStyle = '#f4f4f4';
+      ctx.fillRect(Math.round(middle - near * 1.5), y, Math.max(1, Math.round(near * 3)), 1);
+    }
+  }
+  // A rival ahead: nearer and bigger as the hero catches it, then off to the side as it passes.
+  const pics = art.get('Blue racer');
+  const rear = pics?.back?.[0] ?? pics?.front?.[0];
+  if (rear) {
+    const catchUp = Math.min(1, time / (LOOP * 0.8));
+    const near = 0.15 + catchUp * 0.85;
+    const size = 8 + near * 30;
+    const y = HORIZON + near * (H - HORIZON) - size;
+    const middle = W / 2 + bend * 30 * (1 - near) * (1 - near) + catchUp * catchUp * 34;
+    ctx.drawImage(rear, Math.round(middle - size / 2), Math.round(y), Math.round(size), Math.round(size));
+  }
+  // The bonnet of the hero's car.
+  ctx.fillStyle = '#1a1c2c';
+  ctx.beginPath();
+  ctx.moveTo(10, H);
+  ctx.lineTo(24, H - 9);
+  ctx.lineTo(72, H - 9);
+  ctx.lineTo(86, H);
+  ctx.fill();
+  ctx.fillStyle = '#ef4444';
+  ctx.beginPath();
+  ctx.moveTo(12, H);
+  ctx.lineTo(25, H - 8);
+  ctx.lineTo(71, H - 8);
+  ctx.lineTo(84, H);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.fillRect(46, H - 8, 4, 8);
+}
+
 const SCENES: Record<LevelKind, (s: Scene) => void> = {
   platformer: runScene,
   climb: climbScene,
-  topdown: topdownScene,
   adventure: adventureScene,
   shooter: shooterScene,
+  racing: racingScene,
 };
 
 /** A few seconds of pretend play, looping, to show what a kind of game is like. */

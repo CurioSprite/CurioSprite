@@ -51,6 +51,34 @@ const BUMP_HURTS = 60;
 /** How far ahead of the ship the screen looks, at top speed. */
 const LOOK_AHEAD = 70;
 const SHOOTER_SHOT_SPEED = 240;
+/**
+ * Racing, from the driver's seat: ← → steer (the car turns quicker as it gets
+ * going), ↑ is the gas, ↓ or B brakes, and holding brake when stopped backs up
+ * slowly. The car grips the road (it hardly slides sideways). Off the road the
+ * grass slows it right down. Rivals drive a little slower than the car's best.
+ */
+export const RACE_LAPS = 3;
+/** Seconds of "3, 2, 1" before the race starts. */
+export const RACE_COUNTDOWN = 3;
+/** Rivals turn no quicker than the player can steer at full lock. */
+const CAR_TURN = 2.4;
+/** The player's steering: how fast it turns at full lock, and the share of that when barely moving. */
+const STEER_RATE = 2.4;
+const STEER_STILL = 0.35;
+const REVERSE_TOP = 40;
+const REVERSE_ACCEL = 80;
+const CAR_ACCEL = 200;
+const CAR_TOP = 150;
+const CAR_GRIP = 7;
+const CAR_DRAG = 0.6;
+const CAR_BRAKE = 3;
+const ROUGH_DRAG = 3;
+const ROUGH_TOP = 45;
+const CAR_SIZE = 12;
+/** How fast each rival goes, as a share of the car's top speed. */
+const RIVAL_PACE = [0.78, 0.84, 0.9, 0.75, 0.82, 0.87];
+/** A lap only counts once the car has been at least this far round. */
+const LAP_FAIR = 0.6;
 const BOMB_SPEED = 75;
 const BOMB_SIZE = 4;
 const BOMBS_MAX = 4;
@@ -185,6 +213,43 @@ export interface Bomb extends Box {
   vy: number;
 }
 
+/** A car in a race: a rival, or the player's own lap count. */
+export interface RaceCar extends Body {
+  id: string;
+  spriteId: string;
+  name: string;
+  heading: number;
+  thrusting: boolean;
+  /** Share of top speed it drives at. */
+  pace: number;
+  laps: number;
+  /** Furthest round the track it has been this lap (squares). */
+  best: number;
+  /** Where it finished (1 for first), once it has. */
+  place: number | null;
+}
+
+export interface Race {
+  laps: number;
+  /** Seconds left before the start; then how long the race has gone. */
+  countdown: number;
+  clock: number;
+  /** For each square: how far round the track it is from the start (-1: off the track, or the finish line). */
+  progress: Int32Array;
+  /** How far round a whole lap is. */
+  lapLength: number;
+  /** For each square: the square to drive to next, keeping to the road (-1: none). */
+  next: Int32Array;
+  /** Squares of the finish line. */
+  line: Uint8Array;
+  rivals: RaceCar[];
+  /** How long the player has been going the wrong way round (0 when not). */
+  wrongWay: number;
+  /** The player's laps, and how far round this lap. */
+  you: { laps: number; best: number; place: number | null };
+  finished: number;
+}
+
 /** Shooter: the way the ship points (radians, 0 is up, turning right), whether it is thrusting, and where the screen is (its top left, in world pixels) and looks. */
 export interface Flight {
   heading: number;
@@ -261,6 +326,9 @@ export interface GameState {
   flight: Flight;
   bombs: Bomb[];
   bombIn: number;
+  /** Racing: the race (null in other games), and the squares of grass that slow cars down. */
+  race: Race | null;
+  rough: Uint8Array;
   wonByRule: boolean;
   winRule: WinRule;
   /** The player is touching a goal that is still locked (coins left first). */
@@ -307,6 +375,7 @@ export function createGame(project: LevelProject): GameState {
   const names = new Map(project.sprites.map((s) => [s.id, s.name]));
   const enemies: Enemy[] = [];
   const props: Prop[] = [];
+  const rivals: Array<{ id: string; spriteId: string; name: string; tx: number; ty: number }> = [];
   for (const d of level.objects) {
     const startsHiddenNow = hidden.objects.has(d.id) || (d.spriteId !== undefined && hidden.sprites.has(d.spriteId));
     if (d.kind === 'treasure') {
@@ -319,6 +388,11 @@ export function createGame(project: LevelProject): GameState {
     }
     const spriteId = d.spriteId!;
     const type = enemyTypes.get(spriteId);
+    // In a race, enemies are the rival cars.
+    if (type && settings.mode === 'racing') {
+      rivals.push({ id: d.id, spriteId, name: d.name ?? names.get(spriteId) ?? 'Rival', tx: d.x, ty: d.y });
+      continue;
+    }
     if (type) {
       // Each enemy may have its own moves / toughness instead of its sprite's.
       const hp = d.hp ?? type.hp;
@@ -350,23 +424,24 @@ export function createGame(project: LevelProject): GameState {
     props.push(prop);
     if (prop.solid && !prop.hidden) solid[d.y * level.width + d.x] = 1;
   }
-  // The floor: water can't be walked on, and wild creatures live in tall grass (top-down levels).
+  // The floor: water can't be walked on. Wild creatures live in tall grass (top-down levels); grass slows race cars.
   const grass = new Uint8Array(level.width * level.height);
-  if (settings.mode === 'topdown') {
+  const rough = new Uint8Array(level.width * level.height);
+  if (settings.mode === 'topdown' || settings.mode === 'racing') {
     level.floor.forEach((row, ty) => {
       for (let tx = 0; tx < row.length; tx++) {
         if (row[tx] === NO_FLOOR) continue;
         const kind = level.floorTypes[FLOOR_KEYS.indexOf(row[tx])]?.kind;
         if (kind === 'water') solid[ty * level.width + tx] = 1;
-        if (kind === 'grass') grass[ty * level.width + tx] = 1;
+        if (kind === 'grass') (settings.mode === 'racing' ? rough : grass)[ty * level.width + tx] = 1;
       }
     });
   }
   const start = { x: level.playerStart.x * ts + (ts - PLAYER_W) / 2, y: level.playerStart.y * ts + (ts - PLAYER_H) };
   const s: GameState = {
     mode: settings.mode,
-    // Shooters are always played in real time.
-    battleStyle: settings.mode === 'shooter' ? 'action' : settings.battle,
+    // Shooters and races are always played in real time.
+    battleStyle: settings.mode === 'shooter' || settings.mode === 'racing' ? 'action' : settings.battle,
     tileSize: ts,
     cols: level.width,
     rows: level.height,
@@ -415,10 +490,13 @@ export function createGame(project: LevelProject): GameState {
     flight: { heading: 0, thrusting: false, camX: 0, camY: 0, lookX: 0, lookY: 0 },
     bombs: [],
     bombIn: 1.5,
+    race: null,
+    rough,
     wonByRule: false,
   };
   s.wasGoalOpen = goalOpen(s);
-  if (s.mode === 'shooter') placeCamera(s);
+  if (s.mode === 'racing') s.race = setUpRace(s, rivals);
+  if (s.mode === 'shooter' || s.mode === 'racing') placeCamera(s);
   fire(s, { type: 'start' });
   return s;
 }
@@ -850,7 +928,7 @@ function stepTopDown(s: GameState, frame: InputFrame, dt: number): void {
 }
 
 /** Shooter: how much of its top speed the ship is flying at (0–1). */
-export const throttle = (s: GameState): number => Math.min(1, Math.hypot(s.player.vx, s.player.vy) / FLY_MAX);
+export const throttle = (s: GameState): number => Math.min(1, Math.hypot(s.player.vx, s.player.vy) / (s.mode === 'racing' ? CAR_TOP : FLY_MAX));
 
 /** The way the ship points, as a step of length 1. */
 const headingDir = (s: GameState) => ({ x: Math.sin(s.flight.heading), y: -Math.cos(s.flight.heading) });
@@ -919,10 +997,16 @@ function stepShooter(s: GameState, frame: InputFrame, dt: number): void {
     p.vy = hitY ? -vy * 0.4 : vy * 0.7;
     if (bump > BUMP_HURTS && p.safe === 0) hurtPlayer(s, null, 'bump');
   }
-  // The screen leans ahead the way the ship is going, the further the faster.
+  followCamera(s, FLY_MAX, dt);
+}
+
+/** The screen leans ahead the way the player is going, the further the faster. */
+function followCamera(s: GameState, top: number, dt: number): void {
+  const f = s.flight;
+  const p = s.player;
   const ease = Math.min(1, dt * 2);
-  f.lookX += ((p.vx / FLY_MAX) * LOOK_AHEAD - f.lookX) * ease;
-  f.lookY += ((p.vy / FLY_MAX) * LOOK_AHEAD - f.lookY) * ease;
+  f.lookX += ((p.vx / top) * LOOK_AHEAD - f.lookX) * ease;
+  f.lookY += ((p.vy / top) * LOOK_AHEAD - f.lookY) * ease;
   placeCamera(s);
 }
 
@@ -959,6 +1043,387 @@ function stepBombs(s: GameState, dt: number): void {
     return onScreen(s, b);
   });
 }
+
+// ----- Racing ------------------------------------------------------------------
+
+const NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]] as const;
+
+/** Squares, as distances by road from the seed squares (4 ways, through `open` squares only); -1 where it can't reach. */
+function spread(s: GameState, seeds: number[], open: (i: number) => boolean): Int32Array {
+  const d = new Int32Array(s.cols * s.rows).fill(-1);
+  const queue = [...seeds];
+  for (const i of seeds) d[i] = 0;
+  for (let q = 0; q < queue.length; q++) {
+    const i = queue[q];
+    const x = i % s.cols;
+    const y = (i - x) / s.cols;
+    for (const [dx, dy] of NEIGHBOURS.slice(0, 4)) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= s.cols || ny >= s.rows) continue;
+      const n = ny * s.cols + nx;
+      if (d[n] >= 0 || !open(n)) continue;
+      d[n] = d[i] + 1;
+      queue.push(n);
+    }
+  }
+  return d;
+}
+
+/**
+ * Like `spread`, but each square costs something to cross (small whole
+ * numbers): the cheapest way from the seeds, not the shortest.
+ */
+function cheapest(s: GameState, seeds: number[], cost: (i: number) => number): Int32Array {
+  const d = new Int32Array(s.cols * s.rows).fill(-1);
+  const buckets: number[][] = [seeds.slice()];
+  for (const i of seeds) d[i] = 0;
+  for (let at = 0; at < buckets.length; at++) {
+    for (const i of buckets[at] ?? []) {
+      if (d[i] !== at) continue;
+      const x = i % s.cols;
+      const y = (i - x) / s.cols;
+      for (const [dx, dy] of NEIGHBOURS.slice(0, 4)) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= s.cols || ny >= s.rows) continue;
+        const n = ny * s.cols + nx;
+        const c = cost(n);
+        if (c <= 0) continue;
+        if (d[n] >= 0 && d[n] <= at + c) continue;
+        d[n] = at + c;
+        (buckets[at + c] ??= []).push(n);
+      }
+    }
+  }
+  return d;
+}
+
+/**
+ * Works out the track from the level: how far round each square is (by road
+ * from the player's start, not across the finish line), and which way to
+ * drive from each square, keeping away from the grass and the walls. Puts
+ * the rival cars on their marks, all pointing down the track.
+ */
+function setUpRace(s: GameState, cars: Array<{ id: string; spriteId: string; name: string; tx: number; ty: number }>): Race {
+  const n = s.cols * s.rows;
+  const line = new Uint8Array(n);
+  for (const g of s.goals) line[g.ty * s.cols + g.tx] = 1;
+  const { tx, ty } = playerTile(s);
+  const startAt = ty * s.cols + tx;
+  const progress = s.solid[startAt] ? new Int32Array(n).fill(-1) : spread(s, [startAt], (i) => !s.solid[i] && !line[i]);
+  let lapLength = 1;
+  for (const v of progress) lapLength = Math.max(lapLength, v);
+  // How far each square is from the grass or a wall.
+  const edges: number[] = [];
+  for (let i = 0; i < n; i++) if (s.solid[i] || s.rough[i]) edges.push(i);
+  const clear = spread(s, edges, () => true);
+  // How far is left to the finish line along the road (no dead ends: every square has a nearer one beside it)…
+  const half = lapLength / 2;
+  const before: number[] = [];
+  const after: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (!line[i]) continue;
+    for (const j of [i - 1, i + 1, i - s.cols, i + s.cols]) {
+      if (j < 0 || j >= n || s.solid[j] || line[j] || progress[j] < 0) continue;
+      (progress[j] > half ? before : after).push(j);
+    }
+  }
+  // Grass costs a lot more to cross than road, and the road's edges a little more than its middle, so the way on keeps to the road.
+  const toLine = cheapest(s, before, (i) => (s.solid[i] || line[i] ? 0 : s.rough[i] ? 12 : clear[i] >= 3 ? 2 : clear[i] === 2 ? 3 : 4));
+  // …and, on the line itself, how far to the start side of it.
+  const lineSeeds: number[] = [];
+  for (let i = 0; i < n; i++) if (line[i] && [i - 1, i + 1, i - s.cols, i + s.cols].some((j) => after.includes(j))) lineSeeds.push(i);
+  const acrossLine = spread(s, lineSeeds, (i) => line[i] === 1);
+  const open = (x: number, y: number) => x >= 0 && y >= 0 && x < s.cols && y < s.rows && !s.solid[y * s.cols + x];
+  const next = new Int32Array(n).fill(-1);
+  for (let i = 0; i < n; i++) {
+    if (s.solid[i]) continue;
+    const x = i % s.cols;
+    const y = (i - x) / s.cols;
+    let best = -1;
+    let score = -Infinity;
+    for (const [dx, dy] of NEIGHBOURS) {
+      // Not diagonally round a corner.
+      if (!open(x + dx, y + dy) || !open(x + dx, y) || !open(x, y + dy)) continue;
+      const j = (y + dy) * s.cols + x + dx;
+      // Nearer the line; on to it from just before it; over it to the start side.
+      const nearer = line[i]
+        ? (!line[j] && after.includes(j)) || (line[j] === 1 && acrossLine[j] >= 0 && acrossLine[j] < acrossLine[i])
+        : toLine[i] === 0
+          ? line[j] === 1
+          : !line[j] && toLine[j] >= 0 && toLine[j] < toLine[i];
+      if (!nearer) continue;
+      // The cheapest way on; between equals, the middle of the road.
+      const value = -(line[j] ? 0 : toLine[j]) * 100 + clear[j];
+      if (value > score) {
+        score = value;
+        best = j;
+      }
+    }
+    next[i] = best;
+  }
+  const race: Race = { laps: RACE_LAPS, countdown: RACE_COUNTDOWN, clock: 0, progress, lapLength, next, line, rivals: [], wrongWay: 0, you: { laps: 0, best: 0, place: null }, finished: 0 };
+  const ts = s.tileSize;
+  race.rivals = cars.map((c, k) => {
+    const car: RaceCar = {
+      x: c.tx * ts + (ts - CAR_SIZE) / 2,
+      y: c.ty * ts + (ts - CAR_SIZE) / 2,
+      w: CAR_SIZE,
+      h: CAR_SIZE,
+      vx: 0,
+      vy: 0,
+      onGround: false,
+      id: c.id,
+      spriteId: c.spriteId,
+      name: c.name,
+      heading: 0,
+      thrusting: false,
+      pace: RIVAL_PACE[k % RIVAL_PACE.length],
+      laps: 0,
+      best: 0,
+      place: null,
+    };
+    car.heading = startHeading(s, race, car);
+    car.best = Math.max(0, progress[squareOf(s, car)]);
+    return car;
+  });
+  // The player's car is square too, on its mark and pointing down the track.
+  const p = s.player;
+  p.y += p.h - CAR_SIZE;
+  p.h = CAR_SIZE;
+  p.w = CAR_SIZE;
+  s.flight.heading = startHeading(s, race, p);
+  race.you.best = Math.max(0, progress[squareOf(s, p)]);
+  return race;
+}
+
+/** Which way down the track a car on the grid points: toward the road well ahead, so it starts straight (not across to the middle). */
+function startHeading(s: GameState, r: Race, b: Box): number {
+  let i = squareOf(s, b);
+  if (r.next[i] < 0) return 0;
+  for (let k = 0; k < 12 && r.next[i] >= 0; k++) i = r.next[i];
+  const ts = s.tileSize;
+  const angle = Math.atan2((i % s.cols) * ts + ts / 2 - (b.x + b.w / 2), -(Math.floor(i / s.cols) * ts + ts / 2 - (b.y + b.h / 2)));
+  // To the nearest eighth of a turn: grids are laid along straights.
+  return Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+}
+
+const squareOf = (s: GameState, b: Box): number => Math.floor((b.y + b.h / 2) / s.tileSize) * s.cols + Math.floor((b.x + b.w / 2) / s.tileSize);
+
+/** Is the straight way between two points clear of walls (and, when `grassToo`, of grass)? A car's width either side. */
+function clearRun(s: GameState, ax: number, ay: number, bx: number, by: number, grassToo: boolean): boolean {
+  const ts = s.tileSize;
+  const len = Math.hypot(bx - ax, by - ay);
+  const steps = Math.ceil(len / 4);
+  const half = CAR_SIZE / 2;
+  for (let k = 0; k <= steps; k++) {
+    const t = steps ? k / steps : 0;
+    const x = ax + (bx - ax) * t;
+    const y = ay + (by - ay) * t;
+    for (const [ox, oy] of [[-half, -half], [half, -half], [-half, half], [half, half]]) {
+      const i = Math.floor((y + oy) / ts) * s.cols + Math.floor((x + ox) / ts);
+      if (s.solid[i] || (grassToo && s.rough[i])) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Where to drive from here: the furthest of the next few squares down the
+ * track it can drive straight to (keeping off the grass when on the road),
+ * so it follows the bends instead of cutting across them. Null off the track.
+ */
+function wayOn(s: GameState, r: Race, b: Box, ahead = 5): { x: number; y: number; angle: number } | null {
+  let i = squareOf(s, b);
+  if (i < 0 || i >= r.next.length || r.next[i] < 0) return null;
+  const ts = s.tileSize;
+  const cx = b.x + b.w / 2;
+  const cy = b.y + b.h / 2;
+  const onRoad = !s.rough[i];
+  const centre = (j: number) => ({ x: (j % s.cols) * ts + ts / 2, y: Math.floor(j / s.cols) * ts + ts / 2 });
+  let target = centre(r.next[i]);
+  for (let k = 0; k < ahead && r.next[i] >= 0; k++) {
+    i = r.next[i];
+    const c = centre(i);
+    if (k > 0 && !clearRun(s, cx, cy, c.x, c.y, onRoad)) break;
+    target = c;
+  }
+  return { ...target, angle: Math.atan2(target.x - cx, -(target.y - cy)) };
+}
+
+/**
+ * Drives a car one step: it swings round to point the way it is steered
+ * (thrusting once it points roughly that way), grips the road, slows on grass,
+ * and bounces off walls.
+ */
+function driveCar(s: GameState, car: Body, d: { heading: number; thrusting: boolean }, aim: { x: number; y: number }, braking: boolean, pace: number, dt: number): boolean {
+  const push = Math.min(1, Math.hypot(aim.x, aim.y));
+  d.thrusting = false;
+  if (push > 0) {
+    const want = Math.atan2(aim.x, -aim.y);
+    const off = wrapAngle(want - d.heading);
+    const turn = CAR_TURN * dt;
+    d.heading = wrapAngle(Math.abs(off) <= turn ? want : d.heading + Math.sign(off) * turn);
+    d.thrusting = Math.abs(wrapAngle(want - d.heading)) < THRUST_WITHIN;
+  }
+  return rollCar(s, car, d.heading, d.thrusting ? push : 0, braking, pace, dt);
+}
+
+/** A car's speed for a step: the gas (0 to 1) along the way it points, its grip, brakes and the grass; then it moves and bounces off walls. */
+function rollCar(s: GameState, car: Body, heading: number, gas: number, braking: boolean, pace: number, dt: number): boolean {
+  const fx = Math.sin(heading);
+  const fy = -Math.cos(heading);
+  car.vx += fx * CAR_ACCEL * gas * dt;
+  car.vy += fy * CAR_ACCEL * gas * dt;
+  // Tyres grip: most of any sideways slide goes.
+  const along = car.vx * fx + car.vy * fy;
+  const side = (car.vx * -fy + car.vy * fx) * Math.max(0, 1 - CAR_GRIP * dt);
+  car.vx = fx * along - fy * side;
+  car.vy = fy * along + fx * side;
+  const onGrass = s.rough[squareOf(s, car)] === 1;
+  const slow = Math.max(0, 1 - (braking ? CAR_BRAKE : CAR_DRAG + (onGrass ? ROUGH_DRAG : 0)) * dt);
+  car.vx *= slow;
+  car.vy *= slow;
+  const top = (onGrass ? ROUGH_TOP : CAR_TOP) * pace;
+  const speed = Math.hypot(car.vx, car.vy);
+  if (speed > top) {
+    car.vx *= top / speed;
+    car.vy *= top / speed;
+  }
+  const { vx, vy } = car;
+  const hitX = moveX(s, car, vx * dt);
+  const hitY = moveY(s, car, vy * dt);
+  if (hitX) car.vx = -vx * 0.3;
+  if (hitY) car.vy = -vy * 0.3;
+  return hitX || hitY;
+}
+
+/** Cars that touch push each other apart (nobody gets hurt). */
+function bumpCars(s: GameState, a: Body, b: Body): void {
+  const dx = b.x + b.w / 2 - (a.x + a.w / 2);
+  const dy = b.y + b.h / 2 - (a.y + a.h / 2);
+  const d = Math.hypot(dx, dy) || 1;
+  const gap = (a.w + b.w) / 2 - d;
+  if (gap <= 0) return;
+  const nx = dx / d;
+  const ny = dy / d;
+  moveX(s, a, -nx * gap * 0.5);
+  moveY(s, a, -ny * gap * 0.5);
+  moveX(s, b, nx * gap * 0.5);
+  moveY(s, b, ny * gap * 0.5);
+  // Coming together: they share their speed along the bump.
+  const closing = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+  if (closing > 0) {
+    a.vx -= nx * closing * 0.6;
+    a.vy -= ny * closing * 0.6;
+    b.vx += nx * closing * 0.6;
+    b.vy += ny * closing * 0.6;
+  }
+}
+
+/** Counts laps: crossing the finish line after going most of the way round. Returns true when a lap was just done. */
+function lapCheck(s: GameState, r: Race, car: { laps: number; best: number }, b: Box): boolean {
+  const i = squareOf(s, b);
+  if (i < 0 || i >= r.progress.length) return false;
+  if (r.progress[i] >= 0) car.best = Math.max(car.best, r.progress[i]);
+  if (!r.line[i] || car.best < r.lapLength * LAP_FAIR) return false;
+  car.laps++;
+  car.best = 0;
+  return true;
+}
+
+/** How far through the race a car is, for who is in front. */
+function raceDistance(s: GameState, r: Race, car: { laps: number; best: number; place: number | null }, b: Box): number {
+  const here = r.progress[squareOf(s, b)] ?? -1;
+  return car.laps * r.lapLength + (here >= 0 && here <= car.best + 3 ? here : car.best);
+}
+
+/** The player's place right now (1 for in front). */
+export function racePlace(s: GameState): number {
+  const r = s.race;
+  if (!r) return 1;
+  if (r.you.place !== null) return r.you.place;
+  const mine = raceDistance(s, r, r.you, s.player);
+  return 1 + r.rivals.filter((c) => (c.place !== null ? true : raceDistance(s, r, c, c) > mine)).length;
+}
+
+function stepRace(s: GameState, frame: InputFrame, dt: number): void {
+  const r = s.race!;
+  const p = s.player;
+  if (r.countdown > 0) {
+    r.countdown = Math.max(0, r.countdown - dt);
+    placeCamera(s);
+    return;
+  }
+  r.clock += dt;
+  steerPlayer(s, frame, dt);
+  const ahead = headingDir(s);
+  p.face = Math.abs(ahead.x) > Math.abs(ahead.y) ? { x: Math.sign(ahead.x), y: 0 } : { x: 0, y: Math.sign(ahead.y) };
+  if (ahead.x !== 0) p.facing = ahead.x > 0 ? 1 : -1;
+  // Rivals follow the road, easing off for sharp turns, and slow to a stop once they finish.
+  for (const c of r.rivals) {
+    const way = c.place === null ? wayOn(s, r, c) : null;
+    if (!way) {
+      driveCar(s, c, c, { x: 0, y: 0 }, true, c.pace, dt);
+      continue;
+    }
+    const off = Math.abs(wrapAngle(way.angle - c.heading));
+    const push = off > 0.8 ? 0.4 : 1;
+    driveCar(s, c, c, { x: Math.sin(way.angle) * push, y: -Math.cos(way.angle) * push }, off > 1.2 && Math.hypot(c.vx, c.vy) > 60, c.pace, dt);
+  }
+  const cars: Body[] = [p, ...r.rivals];
+  for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) bumpCars(s, cars[i], cars[j]);
+  for (const c of r.rivals) if (c.place === null && lapCheck(s, r, c, c) && c.laps >= r.laps) c.place = ++r.finished;
+  if (lapCheck(s, r, r.you, p)) {
+    if (r.you.laps >= r.laps) {
+      r.you.place = ++r.finished;
+      s.status = 'won';
+    } else {
+      s.message = { text: r.laps - r.you.laps === 1 ? 'Final lap!' : `Lap ${r.you.laps + 1}!`, shown: 0 };
+    }
+  }
+  followCamera(s, CAR_TOP, dt);
+}
+
+/**
+ * The player's car, driven from the seat: the stick (or ← →) steers, pushing
+ * it up (↑) is the gas, and down (↓) or B brakes, backing up once stopped.
+ */
+function steerPlayer(s: GameState, frame: InputFrame, dt: number): void {
+  const p = s.player;
+  const f = s.flight;
+  const aim = frame.stick ?? axis(frame);
+  const steer = Math.max(-1, Math.min(1, aim.x));
+  const gas = Math.max(0, Math.min(1, -aim.y));
+  const braking = frame.held.secondary || aim.y > 0.3;
+  const fx = Math.sin(f.heading);
+  const fy = -Math.cos(f.heading);
+  const forward = p.vx * fx + p.vy * fy;
+  // Turns quicker once going; backing up, the steering works the other way round, like a real car.
+  const grip = STEER_STILL + (1 - STEER_STILL) * Math.min(1, Math.abs(forward) / 60);
+  f.heading = wrapAngle(f.heading + steer * STEER_RATE * grip * dt * (forward < -2 ? -1 : 1));
+  f.thrusting = gas > 0;
+  if (braking && forward < 5) {
+    // Stopped (or nearly): back up slowly.
+    f.thrusting = false;
+    if (-forward < REVERSE_TOP) {
+      p.vx -= fx * REVERSE_ACCEL * dt;
+      p.vy -= fy * REVERSE_ACCEL * dt;
+    }
+    rollCar(s, p, f.heading, 0, false, 1, dt);
+  } else {
+    rollCar(s, p, f.heading, gas, braking, 1, dt);
+  }
+  // Going the wrong way round for a moment: a warning shows.
+  const r = s.race!;
+  const way = wayOn(s, r, p);
+  const backwards = !!way && forward > 20 && Math.abs(wrapAngle(way.angle - f.heading)) > 2;
+  r.wrongWay = backwards ? r.wrongWay + dt : 0;
+}
+
+/** The ordinal for a place: 1st, 2nd, 3rd, 4th… */
+export const placeName = (n: number): string => `${n}${n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th'}`;
 
 // ----- Enemies ----------------------------------------------------------------
 
@@ -1324,7 +1789,8 @@ function collect(s: GameState): void {
   }
   const atGoal = s.goals.some((g) => !g.hidden && touches(s, g.tx, g.ty));
   s.atLockedGoal = false;
-  if (s.status !== 'playing') return;
+  // A race is won by finishing it (crossing the finish line is a lap).
+  if (s.status !== 'playing' || s.mode === 'racing') return;
   if (s.winRule === 'coins') {
     if (treasureTotal(s) > 0 && allCoinsCollected(s)) s.status = 'won';
   } else if (s.winRule === 'enemies') {
@@ -1363,7 +1829,9 @@ export function stepGame(s: GameState, frame: InputFrame, dt: number = STEP): vo
     frame = { held: frame.held, pressed: { ...frame.pressed, primary: false } };
     if (s.dialog.length) return;
   }
-  if (s.mode === 'shooter') {
+  if (s.mode === 'racing') {
+    stepRace(s, frame, dt);
+  } else if (s.mode === 'shooter') {
     stepShooter(s, frame, dt);
     if (s.status === 'playing') stepShooterEnemies(s, dt);
     if (s.status === 'playing') stepBombs(s, dt);
@@ -1373,8 +1841,11 @@ export function stepGame(s: GameState, frame: InputFrame, dt: number = STEP): vo
     if (s.status === 'playing') for (const e of s.enemies) if (e.alive && !e.hidden) stepEnemy(s, e, dt);
   }
   if (s.status !== 'playing') return;
-  if (s.battleStyle === 'action') stepAction(s, frame, dt);
-  else stepTurnsOverworld(s);
+  // (Cars don't fight.)
+  if (s.mode !== 'racing') {
+    if (s.battleStyle === 'action') stepAction(s, frame, dt);
+    else stepTurnsOverworld(s);
+  }
   if (s.status !== 'playing') return;
   checkTouches(s);
   collect(s);

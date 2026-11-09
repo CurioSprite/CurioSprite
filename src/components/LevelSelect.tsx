@@ -14,7 +14,7 @@ interface Props {
 }
 
 export const levelKindLabel = (l: Pick<Level, 'mode' | 'direction' | 'movement'>): string =>
-  l.mode === 'shooter' ? 'Shooter' : l.mode === 'topdown' ? (l.movement === 'grid' ? 'Adventure' : 'Top-down') : l.direction === 'up' ? 'Climb' : 'Run';
+  l.mode === 'racing' ? 'Racing' : l.mode === 'shooter' ? 'Shooter' : l.mode === 'topdown' ? 'Adventure' : l.direction === 'up' ? 'Climb' : 'Run';
 
 /** Choose a level: winning one opens the next, and any open level can be played again. */
 export function LevelSelect({ game, unlocked, exitLabel, onPick, onExit }: Props) {

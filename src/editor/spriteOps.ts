@@ -218,14 +218,14 @@ export function addView(img: AnimatedImage, facing: Facing): AnimatedImage {
  * Which view to show for something heading in direction `dir`, and whether to
  * mirror it (side views look right). Side-view games always use the side;
  * top-down games use the back going up, the front going down, and the side
- * going left or right. In a shooter the hero is seen from behind and
+ * going left or right. In a shooter or a race the hero is seen from behind and
  * enemies from the front. A missing view falls back to the front.
  */
 export function pickView(has: { back: boolean; side: boolean }, mode: GameMode, dir: { x: number; y: number }): { facing: Facing; mirror: boolean } {
   const left = dir.x < 0;
   if (mode === 'platformer') return { facing: has.side ? 'side' : 'front', mirror: left };
   // Shooter: the player looks up at the enemies (from behind, if drawn); everything else faces front.
-  if (mode === 'shooter') return { facing: dir.y < 0 && has.back ? 'back' : 'front', mirror: false };
+  if (mode === 'shooter' || mode === 'racing') return { facing: dir.y < 0 && has.back ? 'back' : 'front', mirror: false };
   if (Math.abs(dir.y) > Math.abs(dir.x)) return { facing: dir.y < 0 && has.back ? 'back' : 'front', mirror: false };
   if (dir.x === 0) return { facing: 'front', mirror: false };
   return { facing: has.side ? 'side' : 'front', mirror: left };

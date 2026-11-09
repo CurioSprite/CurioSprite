@@ -4,21 +4,22 @@
  * reordering levels. Pure functions.
  */
 import { adventureLevel } from './adventure';
+import { racingLevel } from './racing';
 import { shooterLevel } from './shooter';
 import { createDefaultLevel } from './defaults';
 import { createId } from './ids';
 import { LIMITS, numberObjects, type GameMode, type Level, type LevelConfig, type LevelPlay, type LevelProject, type Project, type Rule, type RuleAction, type RuleTrigger } from './project';
 import type { EditResult } from './projectEdits';
 
-/** The kinds of level a new one can start as. */
-export const LEVEL_KINDS = ['platformer', 'climb', 'topdown', 'adventure', 'shooter'] as const;
+/** The kinds of level a new one can start as. (Plain top-down levels are still played, but new ones start as adventures.) */
+export const LEVEL_KINDS = ['platformer', 'climb', 'adventure', 'shooter', 'racing'] as const;
 export type LevelKind = (typeof LEVEL_KINDS)[number];
 export const LEVEL_KIND_TEXT: Record<LevelKind, { label: string; hint: string }> = {
   platformer: { label: 'Side view', hint: 'Run and jump' },
   climb: { label: 'Climb', hint: 'Jump up a tall tower' },
-  topdown: { label: 'Top-down', hint: 'Look down from above' },
   adventure: { label: 'Adventure', hint: 'Explore, talk, meet wild creatures' },
   shooter: { label: 'Shooter', hint: 'Steer a ship along a canal' },
+  racing: { label: 'Racing', hint: 'Race rival cars round a track' },
 };
 
 /** Does the rule apply in this level (its own, or one for every level)? */
@@ -83,17 +84,17 @@ export function addLevel(project: Project, kind: LevelKind): EditResult & { inde
     const made = adventureLevel(project, nextLevelName(project.levels));
     return 'error' in made ? { ok: false, error: made.error } : { ok: true, project: made.project, index: project.levels.length };
   }
-  if (kind === 'shooter') {
-    const made = shooterLevel(project, nextLevelName(project.levels));
+  if (kind === 'shooter' || kind === 'racing') {
+    const made = (kind === 'shooter' ? shooterLevel : racingLevel)(project, nextLevelName(project.levels));
     return 'error' in made ? { ok: false, error: made.error } : { ok: true, project: made.project, index: project.levels.length };
   }
   const last = project.levels[project.levels.length - 1];
-  const mode: GameMode = kind === 'topdown' ? 'topdown' : 'platformer';
+  const mode: GameMode = 'platformer';
   const starter = createDefaultLevel(last.solidSpriteId, last.collectibleSpriteId, last.goalSpriteId, mode, last.enemies[0], kind === 'climb');
   const level: Level = {
     ...starter,
     name: nextLevelName(project.levels),
-    background: kind === 'topdown' ? starter.background : last.mode === 'platformer' ? last.background : starter.background,
+    background: last.mode === 'platformer' ? last.background : starter.background,
     passThroughSpriteIds: [...last.passThroughSpriteIds],
     enemies: last.enemies.map((e) => ({ ...e })),
     mode,

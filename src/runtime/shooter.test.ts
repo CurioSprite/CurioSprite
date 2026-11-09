@@ -63,7 +63,7 @@ describe('the shooter starter', () => {
     if (!back.ok) throw new Error(back.errors.join());
     expect(back.project.levels[1].mode).toBe('shooter');
     const broken: any = JSON.parse(JSON.stringify(made.project));
-    broken.levels[1].mode = 'racing';
+    broken.levels[1].mode = 'flying-saucer';
     expect(parseProject(broken).ok).toBe(false);
   });
 });

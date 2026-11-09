@@ -2,6 +2,7 @@ import { frameCount, frameOf, pickView, viewOf } from '../editor/spriteOps';
 import { createSpriteCanvas } from '../graphics/spriteCanvas';
 import { FACINGS, FLOOR_KEYS, NO_FLOOR, SCREEN_TILES, type Facing, type GameMode, type LevelProject, type Sprite } from '../models/project';
 import { attackBox, goalOpen, throttle, worldHeight, worldWidth, type GameState } from './game';
+import { RaceView } from './raceView';
 
 /** Visible world area in world pixels: one screen of 25 × 15 tiles. */
 export const VIEW_W = SCREEN_TILES.width * 16;
@@ -41,6 +42,8 @@ export class GameRenderer {
   private readonly floor: Array<Frames | null> = [];
   /** Things that walk about (enemies) can face different ways. */
   private readonly walkers = new Map<string, Views>();
+  /** Races are seen from the driver's seat. */
+  private readonly raceView: RaceView | null;
 
   constructor(private readonly canvas: HTMLCanvasElement, project: LevelProject) {
     canvas.width = VIEW_W * RENDER_SCALE;
@@ -59,6 +62,7 @@ export class GameRenderer {
       return all;
     };
     this.mode = project.settings.mode;
+    this.raceView = this.mode === 'racing' ? new RaceView(project) : null;
     this.player = views(sprite(project.player.spriteId));
     const attack = project.player.attack && project.sprites.find((sp) => sp.id === project.player.attack!.spriteId);
     this.attack = attack ? frames(attack) : null;
@@ -81,15 +85,22 @@ export class GameRenderer {
 
   render(s: GameState): void {
     const { ctx } = this;
+    if (this.raceView) {
+      this.raceView.render(ctx, s, RENDER_SCALE);
+      this.drawSpeed(s);
+      this.drawCountdown(s);
+      return;
+    }
     const ts = s.tileSize;
     const p = s.player;
 
     // Camera follows the player; small levels are centred.
     const ww = worldWidth(s);
     const wh = worldHeight(s);
-    const camX = ww <= VIEW_W ? (ww - VIEW_W) / 2 : s.mode === 'shooter' ? s.flight.camX : clamp(p.x + p.w / 2 - VIEW_W / 2, 0, ww - VIEW_W);
-    // Levels shorter than the screen sit on the bottom edge, with extra sky above. A shooter's screen flies with the ship.
-    const camY = wh <= VIEW_H ? wh - VIEW_H : s.mode === 'shooter' ? s.flight.camY : clamp(p.y + p.h / 2 - VIEW_H / 2, 0, wh - VIEW_H);
+    const flying = s.mode === 'shooter' || s.mode === 'racing';
+    const camX = ww <= VIEW_W ? (ww - VIEW_W) / 2 : flying ? s.flight.camX : clamp(p.x + p.w / 2 - VIEW_W / 2, 0, ww - VIEW_W);
+    // Levels shorter than the screen sit on the bottom edge, with extra sky above. A ship's or car's screen looks ahead of it.
+    const camY = wh <= VIEW_H ? wh - VIEW_H : flying ? s.flight.camY : clamp(p.y + p.h / 2 - VIEW_H / 2, 0, wh - VIEW_H);
 
     ctx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
     ctx.imageSmoothingEnabled = false;
@@ -148,10 +159,16 @@ export class GameRenderer {
       ctx.globalAlpha = 1;
     }
 
+    // Rival cars, drawn pointing up and turned the way they point; their wheels turn as they drive.
+    for (const c of s.race?.rivals ?? []) {
+      const frames = this.walkers.get(c.spriteId)?.front ?? this.images.get(c.spriteId);
+      if (frames) this.drawRotated(walking(frames, s.time * 2, c.thrusting), c.x + c.w / 2, c.y + c.h / 2, ts, c.heading);
+    }
+
     // The player blinks while safe after being hurt.
     if (!(p.safe > 0 && s.battleStyle === 'action' && Math.floor(p.safe * 12) % 2 === 0)) {
-      if (s.mode === 'shooter') {
-        // The ship is drawn pointing up (seen from behind), turned the way it points.
+      if (flying) {
+        // The ship (or car) is drawn pointing up (seen from behind), turned the way it points.
         const { frames } = this.facing(this.player, { x: 0, y: -1 });
         this.drawRotated(this.heroFrame(s, frames), p.x + p.w / 2, p.y + p.h / 2, ts, s.flight.heading);
       } else {
@@ -161,7 +178,7 @@ export class GameRenderer {
     }
 
     // The shield: a faint bubble while it is up, glowing when it stops a hit.
-    if (s.maxShield && (s.shield >= 1 || s.shieldHit > 0)) {
+    if (s.maxShield && s.mode !== 'racing' && (s.shield >= 1 || s.shieldHit > 0)) {
       const glow = s.shieldHit / 0.4;
       ctx.strokeStyle = `rgba(56, 189, 248, ${0.3 + 0.6 * glow})`;
       ctx.fillStyle = `rgba(56, 189, 248, ${0.08 + 0.25 * glow})`;
@@ -211,10 +228,34 @@ export class GameRenderer {
         ctx.fill();
       }
     }
-    if (s.mode === 'shooter') this.drawSpeed(s);
+    if (flying) this.drawSpeed(s);
   }
 
-  /** A shooter's speed: a bar at the right edge of the screen that fills as the ship goes faster. */
+  /** "3, 2, 1" in the middle of the screen before a race, then "GO!" for a moment. */
+  private drawCountdown(s: GameState): void {
+    const r = s.race!;
+    const text = r.countdown > 0 ? String(Math.ceil(r.countdown)) : r.clock < 0.8 ? 'GO!' : '';
+    if (!text) return;
+    const { ctx } = this;
+    ctx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
+    // Each number swells in, then settles.
+    const into = r.countdown > 0 ? 1 - (r.countdown % 1 || 1) : r.clock / 0.8;
+    const size = Math.round(54 + 14 * Math.max(0, 1 - into * 3));
+    ctx.font = `900 ${size}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#1a1c2c';
+    // Under the hello message at the top, above the cars ahead.
+    const y = Math.round(VIEW_H * 0.3);
+    ctx.strokeText(text, VIEW_W / 2, y);
+    ctx.fillStyle = r.countdown > 0 ? '#facc15' : '#4ade80';
+    ctx.fillText(text, VIEW_W / 2, y);
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  /** A ship's or car's speed: a bar at the right edge of the screen that fills as it goes faster. */
   private drawSpeed(s: GameState): void {
     const { ctx } = this;
     ctx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
@@ -260,8 +301,8 @@ export class GameRenderer {
   private heroFrame(s: GameState, frames: Frames): HTMLCanvasElement {
     const p = s.player;
     if (s.mode === 'platformer' && !p.onGround && frames.length > 1) return frames[1];
-    // A ship's engine flickers while it thrusts.
-    if (s.mode === 'shooter') return walking(frames, s.time * 2, s.flight.thrusting);
+    // A ship's engine flickers (a car's wheels turn) while it thrusts.
+    if (s.mode === 'shooter' || s.mode === 'racing') return walking(frames, s.time * 2, s.flight.thrusting);
     return walking(frames, s.time, Math.abs(p.vx) > 1 || (s.mode !== 'platformer' && Math.abs(p.vy) > 1));
   }
 

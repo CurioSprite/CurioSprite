@@ -1,4 +1,4 @@
-import { ArrowRight, Flag, Heart, Home, Lock, Pause, Play, RotateCcw, Shield, Swords, Undo2 } from 'lucide-react';
+import { ArrowRight, Flag, Heart, Home, Lock, Pause, Play, RotateCcw, Shield, Swords, Timer, Trophy, Undo2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Action } from '../input/bindings';
 import { InputManager } from '../input/InputManager';
@@ -7,7 +7,7 @@ import { levelView } from '../models/levels';
 import type { Project } from '../models/project';
 import { LevelSelect } from '../components/LevelSelect';
 import { SpriteThumb } from '../components/SpriteThumb';
-import { BATTLE_CHOICES, type BattleChoice } from '../runtime/game';
+import { BATTLE_CHOICES, placeName, type BattleChoice } from '../runtime/game';
 import { GameRunner, type Hud, type RunnerStats } from '../runtime/GameRunner';
 
 interface Props {
@@ -114,6 +114,9 @@ const BATTLE_ICONS: Record<BattleChoice, ReactNode> = {
   run: <Undo2 size={22} aria-hidden="true" />,
 };
 
+/** Race time as minutes, seconds and tenths: 1:05.3. */
+const raceTime = (tenths: number) => `${Math.floor(tenths / 600)}:${String(Math.floor(tenths / 10) % 60).padStart(2, '0')}.${tenths % 10}`;
+
 const coarsePointer = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 
 export function PlayScreen({ game, startLevel, unlocked, onUnlock, exitLabel, onExit }: Props) {
@@ -178,6 +181,7 @@ function LevelPlay({ game, levelIndex, onUnlock, exitLabel, onExit, onNext, onGo
     dialog: null,
     dialogMore: false,
     winMessage: '',
+    race: null,
   });
   const [showPad, setShowPad] = useState(coarsePointer);
   // Open the game with ?debug to see frame rate and controller details (for testing new hardware).
@@ -239,7 +243,9 @@ function LevelPlay({ game, levelIndex, onUnlock, exitLabel, onExit, onNext, onGo
   const heroSprite = project.sprites.find((s) => s.id === project.player.spriteId);
   const heroBack = heroSprite && { width: heroSprite.width, height: heroSprite.height, pixels: heroSprite.back?.[0] ?? heroSprite.pixels };
   const controls =
-    mode === 'shooter'
+    mode === 'racing'
+      ? 'Steer: ← → · Go: ↑ · Brake: ↓ / X'
+      : mode === 'shooter'
       ? 'Fly: arrows / WASD · Brake: X · Fire: Z / Space'
       : mode === 'platformer'
       ? `Move: arrows / WASD · Jump: Z / Space${battleStyle === 'action' ? ' · Attack: X' : ''}`
@@ -257,15 +263,29 @@ function LevelPlay({ game, levelIndex, onUnlock, exitLabel, onExit, onNext, onGo
             <Home size={18} aria-hidden="true" /> {exitLabel}
           </button>
           <strong className="playName">{project.levelCount > 1 ? `${levelIndex + 1}. ${project.level.name}` : project.meta.name}</strong>
-          <span className="heartsPill">
-            <HealthMeter hud={hud} size={16} />
-          </span>
+          {hud.race ? (
+            <>
+              <span className="goalPill open" aria-label={`Lap ${hud.race.lap} of ${hud.race.laps}`}>
+                <Flag size={16} aria-hidden="true" /> Lap {hud.race.lap}/{hud.race.laps}
+              </span>
+              <span className="goalPill open" aria-label={`${placeName(hud.race.place)} of ${hud.race.cars}`}>
+                <Trophy size={16} aria-hidden="true" /> {placeName(hud.race.place)} / {hud.race.cars}
+              </span>
+              <span className="goalPill open raceTime" aria-label="Race time">
+                <Timer size={16} aria-hidden="true" /> {raceTime(hud.race.tenths)}
+              </span>
+            </>
+          ) : (
+            <span className="heartsPill">
+              <HealthMeter hud={hud} size={16} />
+            </span>
+          )}
           {hud.enemiesTotal > 0 && hud.winRule === 'enemies' && (
             <span className="goalPill open">
               <Swords size={16} aria-hidden="true" /> {hud.enemiesLeft} left
             </span>
           )}
-          {(hud.winRule === 'goal' || hud.winRule === 'coinsThenGoal') && (
+          {!hud.race && (hud.winRule === 'goal' || hud.winRule === 'coinsThenGoal') && (
             <span className={`goalPill ${hud.goalOpen ? 'open' : 'locked'}`}>
               {hud.goalOpen ? <Flag size={16} aria-hidden="true" /> : <Lock size={16} aria-hidden="true" />}
               {!hud.goalOpen ? 'Goal locked' : hud.winRule === 'goal' ? 'Reach the goal' : 'Goal open!'}
@@ -354,6 +374,7 @@ function LevelPlay({ game, levelIndex, onUnlock, exitLabel, onExit, onNext, onGo
           <div className="stageOverlay">
             <div className="overlayCard">
               <h2>{hud.status === 'won' ? hud.winMessage : hud.status === 'lost' ? (hud.healthStyle === 'bar' ? 'Out of health!' : 'Out of hearts!') : 'Paused'}</h2>
+              {hud.status === 'won' && hud.race && <p className="levelDone">Time {raceTime(hud.race.tenths)}</p>}
               {hud.status === 'won' && project.levelCount > 1 && (
                 <p className="levelDone">{hasNext ? `${game.levels[levelIndex + 1].name} is open!` : 'You finished every level!'}</p>
               )}

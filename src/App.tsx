@@ -4,6 +4,7 @@ import { LogoMark } from './components/Logo';
 import { useMenuNavigation } from './input/useMenuNavigation';
 import { createProject } from './models/defaults';
 import { createAdventureProject } from './models/adventure';
+import { createRacingProject } from './models/racing';
 import { createShooterProject } from './models/shooter';
 import { LIMITS, type GameMode, type LevelConfig, type Project, type Rule, type Sprite, type WinRule } from './models/project';
 import { duplicateProject } from './models/serialization';
@@ -128,12 +129,12 @@ export function App() {
   const newGame = async () => {
     if (!repo) return;
     const player = players.current;
-    // First the kind of game. A player's own hero stars in the pictures (a shooter flies its ship).
+    // First the kind of game. A player's own hero stars in the pictures (a shooter flies its ship, a race drives its car).
     const own = player ? heroOf(applyProfileHero(createProject('Hero'), player)) : undefined;
     const shape = await dialogs.choose<LevelKind>({
       title: 'What kind of game?',
       message: 'You can change this later under How it plays.',
-      options: gameKindChoices((k) => (k === 'shooter' ? undefined : own)),
+      options: gameKindChoices((k) => (k === 'shooter' || k === 'racing' ? undefined : own)),
     });
     if (!shape) return;
     // Then its name.
@@ -145,12 +146,12 @@ export function App() {
       maxLength: LIMITS.nameMaxLength,
     });
     if (!name) return;
-    if (shape === 'shooter') {
-      setSession({ project: await repo.create(createShooterProject(name)), dirty: false });
+    if (shape === 'shooter' || shape === 'racing') {
+      setSession({ project: await repo.create(shape === 'shooter' ? createShooterProject(name) : createRacingProject(name)), dirty: false });
       setRoute({ name: 'project' });
       return;
     }
-    const view: GameMode = shape === 'climb' ? 'platformer' : shape === 'adventure' ? 'topdown' : shape;
+    const view: GameMode = shape === 'adventure' ? 'topdown' : 'platformer';
     // A player's own hero goes straight into their new game.
     const fresh = shape === 'adventure' ? createAdventureProject(name) : createProject(name, new Date(), view, shape === 'climb');
     const project = await repo.create(player ? applyProfileHero(fresh, player) : fresh);

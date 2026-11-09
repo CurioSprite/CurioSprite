@@ -34,7 +34,8 @@ import { serializeProject } from '../models/serialization';
 import { addLevel, duplicateLevel, levelView, moveLevel, removeLevel, renameLevel, setLevel, setLevelPlay, setLevelRules, type LevelKind } from '../models/levels';
 import { levelKindLabel } from '../components/LevelSelect';
 import { layoutLoses, layoutOf, reshapeLayout } from '../editor/levelOps';
-import { WIN_RULE_LABELS, projectWinProblem } from '../models/winRules';
+import { WIN_RULE_LABELS, levelCounts, projectWinProblem } from '../models/winRules';
+import { RACE_LAPS } from '../runtime/game';
 
 interface Props {
   project: Project;
@@ -61,8 +62,9 @@ interface Choice<T> {
 
 const MODES: Choice<GameMode>[] = [
   { label: 'Side view', value: 'platformer' },
-  { label: 'Top-down', value: 'topdown' },
+  { label: 'Adventure', value: 'topdown' },
   { label: 'Shooter', value: 'shooter' },
+  { label: 'Racing', value: 'racing' },
 ];
 const MOVEMENT_CHOICES: Choice<Movement>[] = [
   { label: 'Smooth', value: 'free' },
@@ -152,7 +154,12 @@ export function ProjectScreen({ project, dirty, onChange, onSave, onBack, onEdit
   const [selected, setSelected] = useState(initialLevel ?? 0);
   const levelIndex = Math.min(selected, project.levels.length - 1);
   const view = levelView(project, levelIndex);
-  const winProblem = projectWinProblem(view);
+  const winProblem =
+    view.settings.mode === 'racing'
+      ? levelCounts(view.level).goals === 0
+        ? 'No finish line yet: put goal squares across the track so laps can be counted!'
+        : null
+      : projectWinProblem(view);
   const modes = new Set(project.levels.map((l) => l.mode));
   const [showRules, setShowRules] = useState(false);
   const [makingHero, setMakingHero] = useState(Boolean(makeHeroNow));
@@ -484,18 +491,28 @@ export function ProjectScreen({ project, dirty, onChange, onSave, onBack, onEdit
           {view.settings.mode === 'shooter' && (
             <p className="settingNote">The hero is a ship: point the arrows or joystick the way to fly, and it swings round and thrusts that way. B brakes, and it drifts when you let go. Bumping into anything solid too fast hurts. Enemies on screen fire back. Always played in real time.</p>
           )}
+          {view.settings.mode === 'racing' && (
+            <p className="settingNote">
+              You drive from the seat of the race car: ← → (or the joystick) steer, ↑ goes, ↓ or B brakes and backs up. Race {RACE_LAPS} laps against the
+              rival cars (sprites set to Enemy); crossing the finish line (goal squares) ends each lap. Blocks stand up as walls, and the grass slows you down.
+              Build the track from above in the level editor. Always played in real time.
+            </p>
+          )}
           {view.settings.mode === 'platformer' && (
             <>
               <Segmented label="Level goes" choices={DIRECTIONS} value={view.settings.direction} onChange={(d) => void changeDirection(d)} />
               <p className="settingNote">{view.settings.direction === 'up' ? 'A climb: screens stack on top of each other.' : 'A run: screens join on to the side.'}</p>
             </>
           )}
-          <Segmented
-            label="How to win"
-            choices={WIN_CHOICES}
-            value={view.settings.winRule}
-            onChange={(winRule) => onChange(setLevelPlay(project, levelIndex, { winRule }))}
-          />
+          {/* A race is won by finishing it. */}
+          {view.settings.mode !== 'racing' && (
+            <Segmented
+              label="How to win"
+              choices={WIN_CHOICES}
+              value={view.settings.winRule}
+              onChange={(winRule) => onChange(setLevelPlay(project, levelIndex, { winRule }))}
+            />
+          )}
           {winProblem && (
             <p className="settingWarn">
               {winProblem}{' '}
@@ -533,6 +550,8 @@ export function ProjectScreen({ project, dirty, onChange, onSave, onBack, onEdit
             {project.settings.battle === 'action'
               ? view.settings.mode === 'platformer'
                 ? 'Press B (X) to attack enemies. A jumps.'
+                : view.settings.mode === 'racing'
+                ? 'Race cars don’t fight: enemies in a race are rival cars.'
                 : view.settings.mode === 'shooter'
                 ? 'Press A (Z / Space) to fire.'
                 : 'Press A (Z / Space) to attack enemies. B dashes.'

@@ -208,7 +208,7 @@ describe('painting the floor', () => {
 
 describe('doors between levels', () => {
   it('a "go to another level" rule sends the player there; deleting that level takes the rule away', () => {
-    const made = addLevel(createAdventureProject('Quest'), 'topdown');
+    const made = addLevel(createAdventureProject('Quest'), 'adventure');
     if (!made.ok) throw new Error(made.error);
     let game = made.project;
     const [first, second] = game.levels;

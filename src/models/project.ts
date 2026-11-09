@@ -216,11 +216,11 @@ export interface LevelConfig {
 
 /**
  * The camera view: `platformer` is side view with gravity, `topdown` looks
- * down from above, and `shooter` is a ship along the bottom shooting up at
- * rows of enemies that march across and down.
+ * down from above, `shooter` flies a ship that fires the way it points, and
+ * `racing` drives a car round a track against rival cars (its enemies).
  */
-export type GameMode = 'platformer' | 'topdown' | 'shooter';
-export const GAME_MODES: readonly GameMode[] = ['platformer', 'topdown', 'shooter'];
+export type GameMode = 'platformer' | 'topdown' | 'shooter' | 'racing';
+export const GAME_MODES: readonly GameMode[] = ['platformer', 'topdown', 'shooter', 'racing'];
 
 /** `action`: fight in real time. `turns`: touching an enemy opens a turn-based battle. */
 export const BATTLE_STYLES = ['action', 'turns'] as const;

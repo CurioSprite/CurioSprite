@@ -39,7 +39,7 @@ export function LibraryScreen({ repo, onBack, onLaunch, onGoCreate }: Props) {
               </span>
               <strong>{p.meta.name}</strong>
               <small>
-                <Play size={14} aria-hidden="true" /> {p.levels.length > 1 ? `${p.levels.length} levels` : p.levels[0].mode === 'shooter' ? 'Shooter' : p.levels[0].mode === 'topdown' ? 'Explore' : p.levels[0].direction === 'up' ? 'Climb' : 'Jump & Run'}
+                <Play size={14} aria-hidden="true" /> {p.levels.length > 1 ? `${p.levels.length} levels` : p.levels[0].mode === 'racing' ? 'Racing' : p.levels[0].mode === 'shooter' ? 'Shooter' : p.levels[0].mode === 'topdown' ? 'Explore' : p.levels[0].direction === 'up' ? 'Climb' : 'Jump & Run'}
               </small>
             </button>
           ))}

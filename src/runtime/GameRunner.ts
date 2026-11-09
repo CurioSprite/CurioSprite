@@ -2,7 +2,7 @@ import { emptyActionState } from '../input/bindings';
 import type { InputFrame, InputManager } from '../input/InputManager';
 import type { HealthStyle, LevelProject, WinRule } from '../models/project';
 import { WIN_MESSAGES } from '../models/winRules';
-import { STEP, chooseBattle, createGame, enemiesLeft, goalOpen, stepGame, treasureTotal, type BattleChoice, type GameState, type GameStatus } from './game';
+import { STEP, chooseBattle, createGame, enemiesLeft, goalOpen, placeName, racePlace, stepGame, treasureTotal, type BattleChoice, type GameState, type GameStatus } from './game';
 import { GameRenderer } from './renderer';
 
 export interface Hud {
@@ -32,6 +32,20 @@ export interface Hud {
   dialogMore: boolean;
   /** Headline for the win screen. */
   winMessage: string;
+  /** A race in progress (null in other games). */
+  race: RaceHud | null;
+}
+
+export interface RaceHud {
+  /** The lap being driven (the last one once finished), of how many. */
+  lap: number;
+  laps: number;
+  /** Place right now, or where the player finished; of how many cars. */
+  place: number;
+  cars: number;
+  /** Whole seconds left of the countdown (0 once racing), and tenths of a second raced. */
+  countdown: number;
+  tenths: number;
 }
 
 export interface BattleHud {
@@ -197,13 +211,27 @@ export class GameRunner {
       message: this.state.message?.text ?? null,
       dialog: this.state.dialog[0] ?? null,
       dialogMore: this.state.dialog.length > 1,
-      winMessage: this.state.wonByRule ? 'You win!' : WIN_MESSAGES[this.state.winRule],
+      winMessage: this.state.wonByRule ? 'You win!' : this.state.race ? `You came ${placeName(racePlace(this.state))}!` : WIN_MESSAGES[this.state.winRule],
+      race: raceHud(this.state),
     };
     const key = JSON.stringify(hud);
     if (key === this.lastHud) return;
     this.lastHud = key;
     this.callbacks.onHud(hud);
   }
+}
+
+function raceHud(s: GameState): RaceHud | null {
+  const r = s.race;
+  if (!r) return null;
+  return {
+    lap: Math.min(r.laps, r.you.laps + 1),
+    laps: r.laps,
+    place: racePlace(s),
+    cars: r.rivals.length + 1,
+    countdown: Math.ceil(r.countdown),
+    tenths: Math.floor(r.clock * 10),
+  };
 }
 
 function battleHud(s: GameState): BattleHud | null {

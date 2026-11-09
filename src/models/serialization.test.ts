@@ -75,7 +75,7 @@ describe('serializeProject / parseProject', () => {
     ['unknown tile', (p: any) => (p.levels[0].tiles[0] = 'X'.repeat(p.levels[0].width))],
     ['bad colour', (p: any) => (p.palette[0] = 'red')],
     ['empty name', (p: any) => (p.meta.name = '   ')],
-    ['unknown mode', (p: any) => (p.levels[0].mode = 'racing')],
+    ['unknown mode', (p: any) => (p.levels[0].mode = 'flying-saucer')],
     ['NaN speed', (p: any) => (p.player.speed = Number.NaN)],
     ['missing meta', (p: any) => delete p.meta],
   ])('reports corruption: %s', (_label, corrupt) => {

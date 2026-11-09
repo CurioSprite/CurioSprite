@@ -219,6 +219,9 @@ function ruleNote(rule: Rule, project: LevelProject): string | null {
   if (w.on === 'goalOpen' && !project.rules.some((r) => r.then.do === 'openGoal') && project.settings.winRule !== 'coinsThenGoal') {
     return 'The goal starts open, so this never happens. Add an “open the goal” rule or use Treasure, then goal.';
   }
+  if (project.settings.mode === 'racing' && (w.on === 'hit' || w.on === 'beat' || w.on === 'talk' || w.on === 'hurt')) {
+    return 'In a race nobody attacks, beats, talks or gets hurt (enemies are rival cars), so this never happens here.';
+  }
   if (w.on === 'hit' && project.settings.battle === 'turns') {
     const enemy = w.spriteId ? isEnemySprite(project, w.spriteId) : (() => {
       const o = w.objectId ? findObject(project, w.objectId) : undefined;
@@ -227,7 +230,7 @@ function ruleNote(rule: Rule, project: LevelProject): string | null {
     if (!enemy) return 'In turn-based games the player only attacks enemies (in battles), so this never happens. Switch Battles to Action to attack things.';
   }
   if (w.on === 'talk' && project.settings.mode !== 'topdown') {
-    return `Talking works in top-down levels (${project.settings.mode === 'shooter' ? 'in a shooter, A fires' : 'in side view, A jumps'}), so this never happens here.`;
+    return `Talking works in adventure levels (${project.settings.mode === 'shooter' ? 'in a shooter, A fires' : 'in side view, A jumps'}), so this never happens here.`;
   }
   if (w.on === 'beat' && w.spriteId && !isEnemySprite(project, w.spriteId)) {
     return `${spriteName(project, w.spriteId)} isn’t an Enemy, so it can’t be beaten. Make it an Enemy in the level editor.`;

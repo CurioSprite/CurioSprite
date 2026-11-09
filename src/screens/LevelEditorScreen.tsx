@@ -11,6 +11,7 @@ import { canRedo, canUndo } from '../editor/history';
 import { createLevelArt } from '../graphics/levelPainter';
 import { LIMITS, SCREEN_TILES, TILE, type EnemyMoves, type FloorKind, type LevelConfig, type LevelProject, type Project, type Rule, type Sprite, type WinRule } from '../models/project';
 import { WIN_RULE_HELP, WIN_RULE_LABELS, levelCounts, needsGoal, winProblem } from '../models/winRules';
+import { RACE_LAPS } from '../runtime/game';
 import { applyRoles } from '../models/levelRoles';
 import { ObjectMenu } from '../components/ObjectMenu';
 import { ObjectPanel } from '../components/ObjectPanel';
@@ -410,12 +411,12 @@ export function LevelEditorScreen({ game, levelIndex, dirty, onChange, onChangeW
     const n = layout.height / H;
     return Number.isInteger(n) ? String(n) : n.toFixed(1);
   })();
-  // Side-view levels grow one way (across, or up for a climb); top-down and shooter ones both ways.
+  // Side-view levels grow one way (across, or up for a climb); top-down, shooter and racing ones both ways.
   // A control also shows if the level is already bigger that way, so it can be made smaller.
   const { mode, direction } = project.settings;
   const side = mode === 'platformer';
-  const canLengthen = mode === 'topdown' || mode === 'shooter' || (side && direction === 'across') || layout.width > SCREEN_TILES.width;
-  const canHeighten = mode === 'topdown' || mode === 'shooter' || (side && direction === 'up') || layout.height > H;
+  const canLengthen = !side || direction === 'across' || layout.width > SCREEN_TILES.width;
+  const canHeighten = !side || direction === 'up' || layout.height > H;
   // Tall levels (climbs) get their map beside the window, going up.
   const tall = layout.height > H && layout.height / H >= layout.width / SCREEN_TILES.width;
   const onWheel = (e: ReactWheelEvent<HTMLCanvasElement>) => {
@@ -726,6 +727,15 @@ export function LevelEditorScreen({ game, levelIndex, dirty, onChange, onChangeW
             </div>
           ) : (
             <>
+              {project.settings.mode === 'racing' ? (
+                <div className={`winBox ${goals ? '' : 'warn'}`}>
+                  <p className="trayStat">
+                    {goals
+                      ? `A ${RACE_LAPS}-lap race: the goal squares are the finish line, and enemies are rival cars (${enemies}).`
+                      : 'No finish line yet: put goal squares right across the track!'}
+                  </p>
+                </div>
+              ) : (
               <div className={`winBox ${problem ? 'warn' : ''}`}>
                 <button type="button" className="winRuleBtn" onClick={() => void chooseWinRule()} aria-label={`How to win: ${WIN_RULE_LABELS[rule]}. Tap to change.`}>
                   <Trophy size={18} aria-hidden="true" />
@@ -740,6 +750,7 @@ export function LevelEditorScreen({ game, levelIndex, dirty, onChange, onChangeW
                   {needsGoal(rule) || goals === 0 ? null : ' (goal flags do nothing with this rule)'}
                 </p>
               </div>
+              )}
               {brushItem ? (
                 <div className="paintBar" role="group" aria-label="Painting">
                   <div className="paintWith">

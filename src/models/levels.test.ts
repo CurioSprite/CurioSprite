@@ -10,11 +10,11 @@ const made = (r: { ok: true; project: Project } | { ok: false; error: string }):
   return r.project;
 };
 
-/** A game with a run, a climb and a top-down level. */
+/** A game with a run, a climb and a top-down level (new games don't offer plain top-down, but older ones have them). */
 function threeLevels(): Project {
   let p = createProject('Quest');
   p = made(addLevel(p, 'climb'));
-  return made(addLevel(p, 'topdown'));
+  return setLevelPlay(made(addLevel(p, 'platformer')), 2, { mode: 'topdown' });
 }
 
 describe('levels', () => {
